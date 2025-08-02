@@ -1,0 +1,64 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+input, textarea {
+  font-family: system-ui, Arial, Helvetica, sans-serif !important;
+  font-size: 17px;
+  font-weight: 500;
+  padding: 12px;
+  border: 2px solid #222;
+  border-radius: 0;
+  background: transparent;
+}
+
+input.rentroll-edit:focus {
+  border: 2px solid #213c8d !important;
+  box-shadow: 0 0 0 2px #d3e3fb !important;
+  background: #f2f6fd !important;
+}
+
+input.property-edit:focus {
+  border: 2px solid #213c8d !important;
+  box-shadow: 0 0 0 2px #d3e3fb !important;
+  background: #f2f6fd !important;
+}
