@@ -1,48 +1,84 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Table } from '@mantine/core';
-import LoanPaymentsTable from './LoanPaymentsTable';
-import { inputBaseStyle } from '../styles/sharedInputStyles';
 
+const COL_WIDTH = 175;
+const FONT_SIZE = 16;
+const MAX_COLS = 9;
+const TABLE_WIDTH = COL_WIDTH * MAX_COLS;
+
+// highlight styles (match Transaction/Rent tables)
+const HILITE_BG = '#eef5ff';
+const FOCUS_RING = 'inset 0 0 0 3px #325dae';
+
+// Base cell (1 unit)
 const cellStyle: React.CSSProperties = {
   border: '1px solid #222',
   padding: '13px',
   position: 'relative',
-  minWidth: 120,
-  maxWidth: 220,
   textAlign: 'center',
   background: '#fff',
+  fontSize: FONT_SIZE,
+  width: COL_WIDTH,
+  minWidth: COL_WIDTH,
+  maxWidth: COL_WIDTH,
+  overflowWrap: 'anywhere',
+  whiteSpace: 'normal',
+  wordBreak: 'break-word',
+};
+
+// Header cell used inside <tbody> (to match PropertyView look)
+const headerCellStyle = (hasLabel: boolean): React.CSSProperties => ({
+  ...cellStyle,
+  background: hasLabel ? '#ece8d4' : '#000',
+  color: hasLabel ? '#242211' : '#000',
+  fontWeight: 700,
+  textTransform: 'uppercase',
+});
+
+// Blacked-out filler (1 unit)
+const blackCell: React.CSSProperties = {
+  ...cellStyle,
+  background: '#000',
+  color: '#000',
+  cursor: 'default',
+};
+
+// Disabled (until Loan Number exists)
+const disabledCellStyle: React.CSSProperties = {
+  ...cellStyle,
+  background: '#c4c4c4',
+  color: '#5e5e5e',
+  cursor: 'not-allowed',
+  pointerEvents: 'none',
+};
+
+// Borderless inline input (match Transaction/Rent)
+const inputCellStyle: React.CSSProperties = {
+  width: '100%',
+  fontSize: FONT_SIZE,
+  fontFamily: 'inherit',
+  fontWeight: 'inherit',
+  letterSpacing: 'inherit',
+  border: 'none',
+  borderRadius: 0,
+  background: 'transparent',
+  padding: 0,
+  boxSizing: 'border-box',
+  outline: 'none',
+  textAlign: 'center',
 };
 
 function InlineSpinner() {
   return (
     <svg
-      style={{
-        display: 'inline-block',
-        verticalAlign: 'middle',
-        marginLeft: 8,
-        width: 16,
-        height: 16,
-      }}
+      style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 8, width: 16, height: 16 }}
       viewBox="0 0 50 50"
     >
       <circle
-        cx="25"
-        cy="25"
-        r="20"
-        fill="none"
-        stroke="#325dae"
-        strokeWidth="5"
-        strokeDasharray="31.415, 31.415"
-        strokeLinecap="round"
+        cx="25" cy="25" r="20" fill="none" stroke="#325dae" strokeWidth="5"
+        strokeDasharray="31.415, 31.415" strokeLinecap="round"
       >
-        <animateTransform
-          attributeName="transform"
-          type="rotate"
-          from="0 25 25"
-          to="360 25 25"
-          dur="0.8s"
-          repeatCount="indefinite"
-        />
+        <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="0.8s" repeatCount="indefinite" />
       </circle>
     </svg>
   );
@@ -68,75 +104,62 @@ export type LoanDetails = {
   notes?: string;
 };
 
-const COLUMNS: {
-  key: keyof LoanDetails;
-  label: string;
-  type?: 'number' | 'date' | 'text' | 'boolean';
-}[] = [
-    { key: 'loan_id', label: 'Loan Number', type: 'text' },
-    { key: 'loan_amount', label: 'Loan Amount', type: 'number' },
-    { key: 'lender', label: 'Lender', type: 'text' },
-    { key: 'interest_rate', label: 'Interest Rate (%)', type: 'number' },
-    { key: 'loan_term', label: 'Loan Term (months)', type: 'number' },
-    { key: 'loan_start', label: 'Start Date', type: 'date' },
-    { key: 'loan_end', label: 'End Date', type: 'date' },
-    { key: 'amortization_period', label: 'Amortization Period (Years)', type: 'number' },
-    { key: 'monthly_payment', label: 'Monthly Payment', type: 'number' },
-    { key: 'loan_type', label: 'Loan Type', type: 'text' },
-    { key: 'balloon_payment', label: 'Balloon Payment', type: 'boolean' },
-    { key: 'prepayment_penalty', label: 'Prepayment Penalty', type: 'boolean' },
-    { key: 'refinanced', label: 'Refinanced', type: 'boolean' },
-    { key: 'loan_status', label: 'Loan Status', type: 'text' },
-    { key: 'notes', label: 'Notes', type: 'text' },
-  ];
+// ---- Column typing to avoid ".keys()" confusion ----
+type Column = { key: keyof LoanDetails; label: string; type?: 'number' | 'date' | 'text' | 'boolean' };
 
-export default function LoanDetailsTable({
-  property_id,
-}: {
-  property_id: number;
-}) {
+const COLUMNS: Column[] = [
+  { key: 'loan_id', label: 'Loan Number', type: 'text' },
+  { key: 'loan_amount', label: 'Loan Amount', type: 'number' },
+  { key: 'lender', label: 'Lender', type: 'text' },
+  { key: 'interest_rate', label: 'Interest Rate (%)', type: 'number' },
+  { key: 'loan_term', label: 'Loan Term (months)', type: 'number' },
+  { key: 'loan_start', label: 'Start Date', type: 'date' },
+  { key: 'loan_end', label: 'End Date', type: 'date' },
+  { key: 'amortization_period', label: 'Amortization Period (Years)', type: 'number' },
+  { key: 'monthly_payment', label: 'Monthly Payment', type: 'number' },
+
+  { key: 'loan_status', label: 'Loan Status', type: 'text' },
+  { key: 'loan_type', label: 'Loan Type', type: 'text' },
+  { key: 'balloon_payment', label: 'Balloon Payment', type: 'boolean' },
+  { key: 'prepayment_penalty', label: 'Prepayment Penalty', type: 'boolean' },
+  { key: 'refinanced', label: 'Refinanced', type: 'boolean' },
+
+  { key: 'notes', label: 'Notes', type: 'text' }, // rendered last, separate row
+];
+
+const FIELDS_WO_NOTES: Column[] = COLUMNS.filter(c => c.key !== 'notes');
+
+export default function LoanDetailsTable({ property_id }: { property_id: number }) {
   const [data, setData] = useState<LoanDetails | null>(null);
   const [editingKey, setEditingKey] = useState<keyof LoanDetails | null>(null);
   const [editValue, setEditValue] = useState<any>('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const canShowPayments =
-    data?.loan_start &&
-    typeof data.loan_start === 'string' &&
-    data.loan_start.trim().length >= 10 &&
-    data.monthly_payment !== null &&
-    data.loan_term !== null &&
-    data.amortization_period !== null &&
-    data.loan_amount !== null &&
-    data.interest_rate !== null &&
-    data.loan_id &&
-    data.loan_id.trim() !== '';
-
-  const [showPayments, setShowPayments] = useState(false);
-
-  useEffect(() => {
-    if (canShowPayments) setShowPayments(true);
-    else setShowPayments(false);
-  }, [canShowPayments]);
-
-  async function getPurchaseIdByPropertyId(property_id: number): Promise<number | null> {
-    const res = await fetch(`/api/purchase_details?property_id=${property_id}`);
+  async function getPurchaseIdByPropertyId(pid: number): Promise<number | null> {
+    const res = await fetch(`/api/purchase_details?property_id=${pid}`);
     const json = await res.json();
     return json && json.purchase_id ? json.purchase_id : null;
   }
 
   function startEdit(key: keyof LoanDetails) {
     if (!data || saving) return;
+    setSaveError(null);
     setEditingKey(key);
-    setEditValue(data[key] ?? '');
+    let current: any = (data as any)[key] ?? '';
+    const col = COLUMNS.find(c => c.key === key);
+    if (col?.type === 'date') current = current ? String(current).slice(0, 10) : '';
+    setEditValue(current);
   }
 
   useEffect(() => {
     fetch(`/api/loan_details?property_id=${property_id}`)
       .then((res) => res.json())
       .then((json) => {
-        if (!json.error) setData(json);
-        else {
+        if (!json.error) {
+          setData(json);
+          setSaveError(null);
+        } else {
           getPurchaseIdByPropertyId(property_id).then((purchase_id) => {
             setData({
               loan_id: '',
@@ -157,361 +180,353 @@ export default function LoanDetailsTable({
               amortization_period: null,
               notes: '',
             });
+            setSaveError(null);
           });
         }
       })
-      .catch(() => setData(null));
+      .catch(() => {
+        setData(null);
+        setSaveError('Failed to load loan details.');
+      });
   }, [property_id]);
+
+  const isLoanIdReady = Boolean(data?.loan_id && data.loan_id.trim() !== '');
 
   const handleSave = async (key: keyof LoanDetails, customValue?: any) => {
     if (!data) return;
     setSaving(true);
 
     let value = customValue !== undefined ? customValue : editValue;
-    if (COLUMNS.find((col) => col.key === key)?.type === 'number') {
-      value = value === '' ? null : Number(value);
-    }
-    if (COLUMNS.find((col) => col.key === key)?.type === 'boolean') {
-      if (value === '' || value === undefined) {
-        value = null;
-      } else {
-        value = value === 'true' || value === true || value === 'Yes';
-      }
-    }
-    if (COLUMNS.find((col) => col.key === key)?.type === 'date') {
-      value = value === '' ? null : value.slice(0, 10);
-    }
+    const col = COLUMNS.find((c) => c.key === key);
 
-    let url = '';
-    let method: 'POST' | 'PATCH' = 'POST';
-    let body: any = {};
-
-    const isLoanIdReady = data.loan_id && data.loan_id.trim() !== '';
+    if (col?.type === 'number') value = value === '' ? null : Number(value);
+    if (col?.type === 'boolean') value = value === '' || value === undefined ? null : (value === true || value === 'true' || value === 'Yes');
+    if (col?.type === 'date') value = value === '' ? null : String(value).slice(0, 10);
 
     try {
       if (key === 'loan_id' && !isLoanIdReady) {
-        url = '/api/loan_details';
-        method = 'POST';
-        body = { ...data, loan_id: value };
-        const res = await fetch(url, {
-          method,
+        // Need a valid purchase_id to create
+        let pid = data.purchase_id;
+        if (!pid || pid === 0) {
+          pid = await getPurchaseIdByPropertyId(data.property_id) as any;
+          if (!pid) {
+            setSaveError('Please create Purchase Details first so a purchase_id exists before creating the loan.');
+            setSaving(false); setEditingKey(null); return;
+          }
+          setData(prev => prev ? { ...prev, purchase_id: pid! } : prev);
+        }
+
+        const res = await fetch('/api/loan_details', {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...data, purchase_id: pid, loan_id: value }),
         });
         const created = await res.json();
-        if (!created.error) {
+        if (res.ok && !created.error) {
           const fresh = await fetch(`/api/loan_details?property_id=${data.property_id}`);
           const freshJson = await fresh.json();
           setData(freshJson.error ? created : freshJson);
+          setSaveError(null);
         } else {
-          alert("Failed to create loan: " + created.error);
+          setSaveError(`Failed to create loan: ${created?.error || res.statusText}`);
         }
       } else if (key === 'loan_id' && isLoanIdReady) {
         if (!value || String(value).trim() === '') {
-          alert("Loan Number cannot be empty. Use admin tools to delete if needed.");
-          setSaving(false);
-          setEditingKey(null);
-          return;
+          setSaveError('Loan Number cannot be empty. Use admin tools to delete if needed.');
+          setSaving(false); setEditingKey(null); return;
         }
-        url = `/api/loan_details/by_property_purchase`;
-        method = 'PATCH';
-        body = {
-          property_id: data.property_id,
-          purchase_id: data.purchase_id,
-          loan_id: value,
-        };
-        const res = await fetch(url, {
-          method,
+        const res = await fetch(`/api/loan_details/by_property_purchase`, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ property_id: data.property_id, purchase_id: data.purchase_id, loan_id: value }),
         });
         const updated = await res.json();
-        if (!updated.error) {
+        if (res.ok && !updated.error) {
           const fresh = await fetch(`/api/loan_details?property_id=${data.property_id}`);
           const freshJson = await fresh.json();
           setData(freshJson.error ? updated : freshJson);
+          setSaveError(null);
         } else {
-          alert("Failed to update loan number: " + updated.error);
+          setSaveError(`Failed to update loan number: ${updated?.error || res.statusText}`);
         }
       } else if (isLoanIdReady && key !== 'loan_id') {
-        url = `/api/loan_details/${String(data.loan_id)}`;
-        method = 'PATCH';
-        body = { [key]: value };
-        const res = await fetch(url, {
-          method,
+        const res = await fetch(`/api/loan_details/${String(data.loan_id)}`, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ [key]: value }),
         });
         const updated = await res.json();
-        if (!updated.error) {
+        if (res.ok && !updated.error) {
           const fresh = await fetch(`/api/loan_details?property_id=${data.property_id}`);
           const freshJson = await fresh.json();
           setData(freshJson.error ? updated : freshJson);
+          setSaveError(null);
         } else {
-          if (res.status === 404) {
-            alert("Loan record not found in the database. Please reload the page.");
-          } else {
-            alert("Error updating loan: " + updated.error);
-          }
+          setSaveError(res.status === 404 ? 'Loan record not found. Please reload.' : `Error updating loan: ${updated?.error || res.statusText}`);
         }
       } else {
-        alert("No loan record exists to edit. Please enter a Loan Number first.");
+        setSaveError('No loan record exists to edit. Please enter a Loan Number first.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Unexpected error updating loan details.");
+      setSaveError(`Unexpected error: ${err?.message || 'server error'}`);
     }
 
     setSaving(false);
     setEditingKey(null);
   };
 
-  const isLoanIdReady = data?.loan_id && data.loan_id.trim() !== '';
+  // ----- Build sections explicitly typed -----
+  const sections: Column[][] = [];
+  for (let i = 0; i < FIELDS_WO_NOTES.length; i += MAX_COLS) {
+    sections.push(FIELDS_WO_NOTES.slice(i, i + MAX_COLS));
+  }
+
+  // pad to exactly 9 cells with black fillers
+  const padToMax = (arr: Column[]): (Column | null)[] => {
+    const out: (Column | null)[] = [...arr];
+    while (out.length < MAX_COLS) out.push(null);
+    return out;
+  };
+
+  // Colgroup to lock 9×175 grid (consistent across tables)
+  function ColsPx() {
+    return (
+      <colgroup>
+        {Array.from({ length: MAX_COLS }).map((_, i) => (
+          <col key={i} style={{ width: COL_WIDTH }} />
+        ))}
+      </colgroup>
+    );
+  }
+
+  const focusShadow = (active: boolean): React.CSSProperties =>
+    active ? { boxShadow: FOCUS_RING } : {};
 
   return (
-    <>
+    <div style={{ marginTop: 16, width: TABLE_WIDTH }}>
+      {/* Inline error banner */}
+      {saveError && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: '10px 18px',
+            background: '#ffeded',
+            color: '#a13d3d',
+            border: '1.5px solid #e57e7e',
+            borderRadius: 6,
+            fontWeight: 600,
+            fontSize: 16,
+            letterSpacing: 0.5,
+          }}
+        >
+          {saveError}
+        </div>
+      )}
+
       <Table
         striped
         highlightOnHover
         withColumnBorders
         style={{
-          fontSize: 18,
+          fontSize: FONT_SIZE,
           borderCollapse: 'collapse',
           border: '2px solid #222',
           boxShadow: 'inset 0 0 10px rgba(0,0,0,0.06)',
           background: '#fff',
           width: '100%',
-          marginTop: 16,
           textAlign: 'center',
+          tableLayout: 'fixed',
         }}
       >
-        <thead>
-          <tr>
-            {COLUMNS.map((col) => (
-              <th
-                key={col.key}
-                style={{
-                  background: '#ece8d4',
-                  color: '#242211',
-                  fontWeight: 700,
-                  padding: '13px',
-                  border: '1px solid #222',
-                  textAlign: 'center',
-                  letterSpacing: 1,
-                  textTransform: 'uppercase',
-                }}
-              >
-                {col.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            {COLUMNS.map((col) => {
-              const v = data?.[col.key];
-              const isDateCol = col.key === 'loan_start' || col.key === 'loan_end';
-              const isEditing = editingKey === col.key;
+        <ColsPx />
 
-              // Loan Number cell (special logic)
-              if (col.key === 'loan_id') {
-                return (
-                  <td key={col.key} style={cellStyle}>
-                    {isEditing ? (
+        <tbody>
+          {sections.map((cols, sIdx) => {
+            const padded = padToMax(cols);
+            const rowHasFocus = padded.some(c => c?.key === editingKey);
+
+            // Header row (9 × 175)
+            const HeaderRow = (
+              <tr key={`h-${sIdx}`}>
+                {padded.map((col, ci) => (
+                  <th key={`h-${sIdx}-${ci}`} style={headerCellStyle(Boolean(col?.label))}>
+                    {col?.label ?? ''}
+                  </th>
+                ))}
+              </tr>
+            );
+
+            // Value/input row (9 × 175)
+            const ValueRow = (
+              <tr key={`v-${sIdx}`} style={rowHasFocus ? { outline: '2px solid #325dae', background: HILITE_BG } : undefined}>
+                {padded.map((col, ci) => {
+                  if (!col) return <td key={`v-${sIdx}-${ci}`} style={blackCell}>&nbsp;</td>;
+                  const v = (data as any)?.[col.key];
+                  const isEditing = editingKey === col.key;
+
+                  // loan_id special handling
+                  if (col.key === 'loan_id') {
+                    return (
+                      <td
+                        key={`v-${sIdx}-${ci}`}
+                        style={{ ...cellStyle, cursor: 'pointer', ...focusShadow(isEditing) }}
+                        onClick={() => !saving && startEdit(col.key)}
+                      >
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editValue ?? ''}
+                            style={inputCellStyle}
+                            autoFocus
+                            disabled={saving}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => handleSave(col.key)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
+                          />
+                        ) : (
+                          <span style={{ color: !saving ? '#000' : '#bbb', cursor: 'default' }}>
+                            {v && String(v).trim() !== '' ? String(v) : <span style={{ color: '#bbb' }}>—</span>}
+                          </span>
+                        )}
+                        {isEditing && <InlineSpinner />}
+                      </td>
+                    );
+                  }
+
+                  if (!isLoanIdReady) {
+                    return (
+                      <td key={`v-${sIdx}-${ci}`} style={disabledCellStyle}>
+                        {col.type === 'boolean' ? '—' : <span style={{ color: '#444' }}>—</span>}
+                      </td>
+                    );
+                  }
+
+                  if (!isEditing) {
+                    return (
+                      <td
+                        key={`v-${sIdx}-${ci}`}
+                        style={{ ...cellStyle, background: rowHasFocus ? HILITE_BG : '#fff', opacity: saving ? 0.5 : 1, cursor: 'pointer' }}
+                        onClick={() => !saving && startEdit(col.key)}
+                      >
+                        {(v === null || v === undefined || String(v).trim() === '') && col.type !== 'boolean' ? (
+                          <span style={{ color: '#bbb' }}>—</span>
+                        ) : col.key === 'interest_rate' ? (
+                          `${Number(v)}%`
+                        ) : col.key === 'loan_term' ? (
+                          Number(v)
+                        ) : col.type === 'boolean' ? (
+                          v ? 'Yes' : 'No'
+                        ) : col.type === 'number' ? (
+                          col.key === 'amortization_period' ? Number(v) : `$${Number(v).toLocaleString()}`
+                        ) : col.type === 'date' ? (
+                          String(v).slice(0, 10)
+                        ) : (
+                          String(v)
+                        )}
+                      </td>
+                    );
+                  }
+
+                  // Editing cells (borderless inputs + focus ring on cell)
+                  if (col.type === 'boolean') {
+                    return (
+                      <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
+                        <select
+                          value={editValue === true || editValue === 'Yes' ? 'Yes' : 'No'}
+                          style={inputCellStyle}
+                          onChange={(e) => setEditValue(e.target.value === 'Yes')}
+                          onBlur={() => handleSave(col.key)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
+                          disabled={saving}
+                        >
+                          <option value="Yes">Yes</option>
+                          <option value="No">No</option>
+                        </select>
+                        {saving && <InlineSpinner />}
+                      </td>
+                    );
+                  }
+
+                  if (col.type === 'date') {
+                    return (
+                      <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
+                        <input
+                          type="date"
+                          value={editValue ?? ''}
+                          style={inputCellStyle}
+                          autoFocus
+                          disabled={saving}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => handleSave(col.key)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
+                        />
+                        {saving && <InlineSpinner />}
+                      </td>
+                    );
+                  }
+
+                  return (
+                    <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
                       <input
-                        type="text"
+                        type={col.type === 'number' ? 'number' : 'text'}
                         value={editValue ?? ''}
-                        style={inputBaseStyle}
+                        style={inputCellStyle}
                         autoFocus
                         disabled={saving}
                         onChange={(e) => setEditValue(e.target.value)}
                         onBlur={() => handleSave(col.key)}
-                        onBlurCapture={(e) => Object.assign(e.target.style, inputBaseStyle)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSave(col.key);
-                          if (e.key === 'Escape') setEditingKey(null);
-                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
                       />
-                    ) : (
-                      <span
-                        onClick={() => !saving && startEdit(col.key)}
-                        style={{ color: !saving ? '#000' : '#bbb', cursor: 'default' }}
-                      >
-                        {v && String(v).trim() !== '' ? String(v) : <span style={{ color: '#bbb' }}>—</span>}
-                      </span>
-                    )}
-                    {isEditing && <InlineSpinner />}
-                  </td>
-                );
-              }
-              // Block edit if loan row doesn't exist
-              if (!isLoanIdReady) {
-                return (
-                  <td
-                    key={col.key}
-                    style={{
-                      ...cellStyle,
-                      background: '#f3f3f3',
-                      color: '#aaa',
-                      opacity: 0.6,
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    {col.type === 'boolean'
-                      ? '—'
-                      : <span style={{ color: '#bbb' }}>—</span>}
-                  </td>
-                );
-              }
-
-              // Date fields
-              if (isDateCol) {
-                return (
-                  <td
-                    key={col.key}
-                    style={{
-                      ...cellStyle,
-                      background: '#fff',
-                      opacity: saving ? 0.5 : 1,
-                    }}
-                  >
-                    <input
-                      type="date"
-                      value={v ? String(v).slice(0, 10) : ''}
-                      style={{
-                        ...inputBaseStyle,
-                        border: 'none',
-                        background: 'transparent',
-                        padding: '13px',
-                        textAlign: 'center',
-                      }}
-                      disabled={saving}
-                      onChange={(e) => !saving && handleSave(col.key, e.target.value)}
-                      onBlurCapture={(e) => Object.assign(e.target.style, inputBaseStyle)}
-                    />
-                    {saving && isEditing && <InlineSpinner />}
-                  </td>
-                );
-              }
-
-              // Editable boolean/select
-              if (isEditing) {
-                if (col.type === 'boolean') {
-                  return (
-                    <td key={col.key} style={cellStyle}>
-                      <select
-                        value={editValue === true || editValue === 'Yes' ? 'Yes' : 'No'}
-                        style={inputBaseStyle}
-                        onChange={(e) => setEditValue(e.target.value === 'Yes')}
-                        onBlur={() => handleSave(col.key)}
-                        onBlurCapture={(e) => Object.assign(e.target.style, inputBaseStyle)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSave(col.key);
-                          if (e.key === 'Escape') setEditingKey(null);
-                        }}
-                        disabled={saving}
-                      >
-                        <option value="Yes">Yes</option>
-                        <option value="No">No</option>
-                      </select>
                       {saving && <InlineSpinner />}
                     </td>
                   );
-                }
-                // Editable number/text
-                return (
-                  <td key={col.key} style={cellStyle}>
-                    <input
-                      type={col.type === 'number' ? 'number' : 'text'}
-                      value={editValue ?? ''}
-                      style={inputBaseStyle}
-                      autoFocus
-                      disabled={saving}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onBlur={() => handleSave(col.key)}
-                      onBlurCapture={(e) => Object.assign(e.target.style, inputBaseStyle)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSave(col.key);
-                        if (e.key === 'Escape') setEditingKey(null);
-                      }}
-                    />
-                    {saving && <InlineSpinner />}
-                  </td>
-                );
-              }
+                })}
+              </tr>
+            );
 
-              // Default, click-to-edit
-              return (
-                <td
-                  key={col.key}
-                  style={{
-                    ...cellStyle,
-                    background: '#fff',
-                    opacity: saving ? 0.5 : 1,
-                  }}
-                  onClick={() =>
-                    !saving && col.type !== 'boolean' && col.key !== 'loan_id'
-                      ? startEdit(col.key)
-                      : undefined
-                  }
-                >
-                  {(v === null || v === undefined || String(v).trim() === '') && col.type !== 'boolean' ? (
-                    <span style={{ color: '#bbb' }}>—</span>
-                  ) : col.key === 'interest_rate' ? (
-                    `${Number(v)}%`
-                  ) : col.key === 'loan_term' ? (
-                    Number(v)
-                  ) : col.type === 'boolean' ? (
-                    v ? 'Yes' : 'No'
-                  ) : col.type === 'number' ? (
-                    col.key === 'amortization_period'
-                      ? Number(v)
-                      : `$${Number(v).toLocaleString()}`
-                  ) : (
-                    String(v)
-                  )}
-                </td>
-              );
-            })}
+            // Keyed fragment to silence React key warning
+            return (
+              <React.Fragment key={`sec-${sIdx}`}>
+                {HeaderRow}
+                {ValueRow}
+              </React.Fragment>
+            );
+          })}
+
+          {/* NOTES — label is 1 unit (175px), value spans the remainder (8 units) */}
+          <tr style={editingKey === 'notes' ? { outline: '2px solid #325dae', background: HILITE_BG } : undefined}>
+            <td style={headerCellStyle(true)}>Notes</td>
+            <td
+              colSpan={MAX_COLS - 1}
+              style={{
+                border: '1px solid #222',
+                padding: '13px',
+                textAlign: 'left',
+                background: editingKey === 'notes' ? HILITE_BG : '#fff',
+                fontSize: FONT_SIZE,
+                cursor: 'pointer',
+                ...(editingKey === 'notes' ? { boxShadow: FOCUS_RING } : {}),
+              }}
+              onClick={() => startEdit('notes')}
+            >
+              {editingKey === 'notes' ? (
+                <input
+                  type="text"
+                  value={editValue ?? ''}
+                  style={{ ...inputCellStyle, maxWidth: '100%', textAlign: 'left' }}
+                  autoFocus
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={() => handleSave('notes')}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSave('notes'); if (e.key === 'Escape') setEditingKey(null); }}
+                />
+              ) : (
+                (data?.notes && String(data.notes).trim() !== '') ? <span>{String(data.notes)}</span> : <span style={{ color: '#bbb' }}>—</span>
+              )}
+            </td>
           </tr>
         </tbody>
       </Table>
-
-      {canShowPayments && (
-        <button
-          style={{
-            margin: '26px 0 22px 0',
-            minWidth: 400,
-            fontWeight: 700,
-            fontFamily: 'inherit',
-            padding: '12px 0',
-            border: '2px solid #222',
-            borderRadius: 0,
-            background: showPayments ? '#f0b8a6a2' : '#97cbf7b4',
-            color: '#222',
-            fontSize: 18,
-            letterSpacing: 1,
-            cursor: 'pointer',
-            textTransform: 'uppercase',
-            boxShadow: showPayments ? '0 2px 7px 0 rgba(50, 50, 0, 0.03)' : 'none',
-            transition: 'background 0.14s, color 0.14s, box-shadow 0.14s',
-            outline: 'none',
-          }}
-          onClick={() => setShowPayments((v) => !v)}
-        >
-          {showPayments ? 'Hide Loan Payments' : 'Show Loan Payments'}
-        </button>
-      )}
-
-      {showPayments && data && (
-        <LoanPaymentsTable
-          loanStart={data.loan_start}
-          loanEnd={data.loan_end || data.loan_start}
-          monthlyPayment={Number(data.monthly_payment) || 0}
-          loanId={data.loan_id}
-          propertyId={data.property_id}
-        />
-      )}
-    </>
+    </div>
   );
 }
