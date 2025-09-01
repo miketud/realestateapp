@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table } from '@mantine/core';
+import { Table, Title } from '@mantine/core';
 
 const COL_WIDTH = 175;
 const FONT_SIZE = 16;
@@ -67,22 +67,6 @@ const inputCellStyle: React.CSSProperties = {
   outline: 'none',
   textAlign: 'center',
 };
-
-function InlineSpinner() {
-  return (
-    <svg
-      style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 8, width: 16, height: 16 }}
-      viewBox="0 0 50 50"
-    >
-      <circle
-        cx="25" cy="25" r="20" fill="none" stroke="#325dae" strokeWidth="5"
-        strokeDasharray="31.415, 31.415" strokeLinecap="round"
-      >
-        <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="0.8s" repeatCount="indefinite" />
-      </circle>
-    </svg>
-  );
-}
 
 export type LoanDetails = {
   loan_id: string;
@@ -205,7 +189,6 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
 
     try {
       if (key === 'loan_id' && !isLoanIdReady) {
-        // Need a valid purchase_id to create
         let pid = data.purchase_id;
         if (!pid || pid === 0) {
           pid = await getPurchaseIdByPropertyId(data.property_id) as any;
@@ -276,20 +259,17 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
     setEditingKey(null);
   };
 
-  // ----- Build sections explicitly typed -----
   const sections: Column[][] = [];
   for (let i = 0; i < FIELDS_WO_NOTES.length; i += MAX_COLS) {
     sections.push(FIELDS_WO_NOTES.slice(i, i + MAX_COLS));
   }
 
-  // pad to exactly 9 cells with black fillers
   const padToMax = (arr: Column[]): (Column | null)[] => {
     const out: (Column | null)[] = [...arr];
     while (out.length < MAX_COLS) out.push(null);
     return out;
   };
 
-  // Colgroup to lock 9×175 grid (consistent across tables)
   function ColsPx() {
     return (
       <colgroup>
@@ -301,11 +281,24 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
   }
 
   const focusShadow = (active: boolean): React.CSSProperties =>
-    active ? { boxShadow: FOCUS_RING } : {};
+    active ? { boxShadow: FOCUS_RING, background: HILITE_BG } : {};
 
   return (
     <div style={{ marginTop: 16, width: TABLE_WIDTH }}>
-      {/* Inline error banner */}
+      <Title
+        order={3}
+        style={{
+          marginBottom: 12,
+          fontWeight: 800,
+          color: '#4d4637',
+          letterSpacing: 1,
+          textTransform: 'uppercase',
+        }}
+      >
+        LOAN DETAILS
+      </Title>
+
+      {/* Error banner (like RentRollTable) */}
       {saveError && (
         <div
           style={{
@@ -344,9 +337,7 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
         <tbody>
           {sections.map((cols, sIdx) => {
             const padded = padToMax(cols);
-            const rowHasFocus = padded.some(c => c?.key === editingKey);
 
-            // Header row (9 × 175)
             const HeaderRow = (
               <tr key={`h-${sIdx}`}>
                 {padded.map((col, ci) => (
@@ -357,15 +348,13 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
               </tr>
             );
 
-            // Value/input row (9 × 175)
             const ValueRow = (
-              <tr key={`v-${sIdx}`} style={rowHasFocus ? { outline: '2px solid #325dae', background: HILITE_BG } : undefined}>
+              <tr key={`v-${sIdx}`}>
                 {padded.map((col, ci) => {
                   if (!col) return <td key={`v-${sIdx}-${ci}`} style={blackCell}>&nbsp;</td>;
                   const v = (data as any)?.[col.key];
                   const isEditing = editingKey === col.key;
 
-                  // loan_id special handling
                   if (col.key === 'loan_id') {
                     return (
                       <td
@@ -389,7 +378,6 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                             {v && String(v).trim() !== '' ? String(v) : <span style={{ color: '#bbb' }}>—</span>}
                           </span>
                         )}
-                        {isEditing && <InlineSpinner />}
                       </td>
                     );
                   }
@@ -406,7 +394,7 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                     return (
                       <td
                         key={`v-${sIdx}-${ci}`}
-                        style={{ ...cellStyle, background: rowHasFocus ? HILITE_BG : '#fff', opacity: saving ? 0.5 : 1, cursor: 'pointer' }}
+                        style={{ ...cellStyle, cursor: 'pointer', ...focusShadow(isEditing) }}
                         onClick={() => !saving && startEdit(col.key)}
                       >
                         {(v === null || v === undefined || String(v).trim() === '') && col.type !== 'boolean' ? (
@@ -428,7 +416,63 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                     );
                   }
 
-                  // Editing cells (borderless inputs + focus ring on cell)
+                  // Loan Status: dropdown
+if (col.key === 'loan_status') {
+  return (
+    <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
+      <select
+        value={editValue ?? ''}
+        style={{
+          ...inputCellStyle,
+          textAlign: 'center',
+        }}
+        autoFocus
+        disabled={saving}
+        onChange={(e) => setEditValue(e.target.value)}
+        onBlur={() => handleSave(col.key)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleSave(col.key);
+          if (e.key === 'Escape') setEditingKey(null);
+        }}
+      >
+        <option value="">—</option>
+        <option value="Active">Active</option>
+        <option value="Paid">Paid</option>
+        <option value="Pending">Pending</option>
+      </select>
+    </td>
+  );
+}
+
+// Loan Type: dropdown, same style as booleans
+if (col.key === 'loan_type') {
+  return (
+    <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
+      <select
+        value={editValue ?? ''}
+        style={{
+          ...inputCellStyle,
+          textAlign: 'center',
+        }}
+        autoFocus
+        disabled={saving}
+        onChange={(e) => setEditValue(e.target.value)}
+        onBlur={() => handleSave(col.key)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleSave(col.key);
+          if (e.key === 'Escape') setEditingKey(null);
+        }}
+      >
+        <option value="">—</option>
+        <option value="Conventional">Conventional</option>
+        <option value="Hard Money">Hard Money</option>
+        <option value="Adjustable Rate Mortgage">Adjustable Rate Mortgage</option>
+        <option value="Fixed Rate Mortgage">Fixed Rate Mortgage</option>
+      </select>
+    </td>
+  );
+}
+
                   if (col.type === 'boolean') {
                     return (
                       <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
@@ -443,7 +487,6 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                           <option value="Yes">Yes</option>
                           <option value="No">No</option>
                         </select>
-                        {saving && <InlineSpinner />}
                       </td>
                     );
                   }
@@ -461,7 +504,6 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                           onBlur={() => handleSave(col.key)}
                           onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
                         />
-                        {saving && <InlineSpinner />}
                       </td>
                     );
                   }
@@ -478,14 +520,12 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                         onBlur={() => handleSave(col.key)}
                         onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
                       />
-                      {saving && <InlineSpinner />}
                     </td>
                   );
                 })}
               </tr>
             );
 
-            // Keyed fragment to silence React key warning
             return (
               <React.Fragment key={`sec-${sIdx}`}>
                 {HeaderRow}
@@ -494,8 +534,8 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
             );
           })}
 
-          {/* NOTES — label is 1 unit (175px), value spans the remainder (8 units) */}
-          <tr style={editingKey === 'notes' ? { outline: '2px solid #325dae', background: HILITE_BG } : undefined}>
+          {/* Notes row */}
+          <tr>
             <td style={headerCellStyle(true)}>Notes</td>
             <td
               colSpan={MAX_COLS - 1}
@@ -503,10 +543,9 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                 border: '1px solid #222',
                 padding: '13px',
                 textAlign: 'left',
-                background: editingKey === 'notes' ? HILITE_BG : '#fff',
                 fontSize: FONT_SIZE,
                 cursor: 'pointer',
-                ...(editingKey === 'notes' ? { boxShadow: FOCUS_RING } : {}),
+                ...(editingKey === 'notes' ? { boxShadow: FOCUS_RING, background: HILITE_BG } : {}),
               }}
               onClick={() => startEdit('notes')}
             >
@@ -519,6 +558,7 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                   onChange={(e) => setEditValue(e.target.value)}
                   onBlur={() => handleSave('notes')}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleSave('notes'); if (e.key === 'Escape') setEditingKey(null); }}
+                  disabled={saving}
                 />
               ) : (
                 (data?.notes && String(data.notes).trim() !== '') ? <span>{String(data.notes)}</span> : <span style={{ color: '#bbb' }}>—</span>

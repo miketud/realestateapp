@@ -9,7 +9,6 @@ const MAX_COLS = 9;
 const TABLE_WIDTH = MAIN_COL_WIDTH * MAX_COLS;
 
 // --- Visual primitives to match Rent/Transaction ---
-const HILITE_BG = '#eef5ff';
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
 
 const cellStyle: React.CSSProperties = {
@@ -38,31 +37,15 @@ const inputCellStyle: React.CSSProperties = {
   textAlign: 'center',
 };
 
-function InlineSpinner() {
-  return (
-    <svg
-      style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 8, width: 16, height: 16 }}
-      viewBox="0 0 50 50"
-    >
-      <circle
-        cx="25" cy="25" r="20" fill="none" stroke="#325dae" strokeWidth="5"
-        strokeDasharray="31.415, 31.415" strokeLinecap="round"
-      >
-        <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="0.8s" repeatCount="indefinite" />
-      </circle>
-    </svg>
-  );
-}
-
 type PurchaseDetails = {
   purchase_id: number;
   property_id: number;
   closing_date: string | null;
   purchase_price: number | null;
-  buyer: string;
-  seller: string;
   financing_type: string;
   acquisition_type: string;
+  buyer: string;
+  seller: string;
   closing_costs: number | null;
   earnest_money: number | null;
   down_payment?: number | null;
@@ -74,13 +57,13 @@ type Column = { key: keyof PurchaseDetails; label: string; type?: 'number' | 'da
 const COLUMNS: Column[] = [
   { key: 'closing_date', label: 'Closing Date', type: 'date' },
   { key: 'purchase_price', label: 'Purchase Price', type: 'number' },
-  { key: 'down_payment', label: 'Down Payment', type: 'number' },
-  { key: 'buyer', label: 'Buyer', type: 'text' },
-  { key: 'seller', label: 'Seller', type: 'text' },
   { key: 'financing_type', label: 'Financing Type', type: 'text' },
   { key: 'acquisition_type', label: 'Acquisition Type', type: 'text' },
-  { key: 'closing_costs', label: 'Closing Costs', type: 'number' },
+  { key: 'buyer', label: 'Buyer', type: 'text' },
+  { key: 'seller', label: 'Seller', type: 'text' },
+  { key: 'down_payment', label: 'Down Payment', type: 'number' },
   { key: 'earnest_money', label: 'Earnest Money', type: 'number' },
+  { key: 'closing_costs', label: 'Closing Costs', type: 'number' },
   { key: 'notes', label: 'Notes', type: 'text' },
 ];
 
@@ -118,7 +101,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
         if (j?.created_at) setPropertyCreatedAt(j.created_at);
         setSaveError(null);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [property_id]);
 
   // Load purchase details
@@ -238,8 +221,6 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
     );
   }
 
-  const mainRowHasFocus = editKey ? MAIN_COLUMNS.some(c => c.key === editKey) : false;
-
   return (
     <div style={{ margin: '56px 0 38px 0' }}>
       <Title
@@ -249,10 +230,11 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
         PURCHASE DETAILS
       </Title>
 
-      {/* Inline error banner */}
+      {/* Error banner (like RentRollTable) */}
       {saveError && (
         <div
           style={{
+            width: TABLE_WIDTH,
             marginBottom: 16,
             padding: '10px 18px',
             background: '#ffeded',
@@ -316,7 +298,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
 
           <tbody>
             {/* Main row (everything except Notes) */}
-            <tr style={mainRowHasFocus ? { outline: '2px solid #325dae', background: HILITE_BG } : undefined}>
+            <tr>
               {MAIN_COLUMNS.map((col) => {
                 const v = data?.[col.key];
                 const isEditing = editKey === col.key;
@@ -327,7 +309,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                   minWidth: MAIN_COL_WIDTH,
                   maxWidth: MAIN_COL_WIDTH,
                   cursor: 'pointer',
-                  ...(isEditing ? { boxShadow: FOCUS_RING } : {}),
+                  ...(isEditing ? { boxShadow: FOCUS_RING, background: '#eef5ff' } : {}),
                 };
 
                 if (!isEditing) {
@@ -349,6 +331,59 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                     </td>
                   );
                 }
+// Financing Type: dropdown
+if (col.key === 'financing_type') {
+  return (
+    <td key={col.key} style={baseTdStyle}>
+      <select
+        value={editValue ?? ''}
+        style={{ ...inputCellStyle, textAlign: 'center' }}
+        autoFocus
+        disabled={saving}
+        onChange={(e) => setEditValue(e.target.value)}
+        onBlur={() => saveEdit(col.key)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') saveEdit(col.key);
+          if (e.key === 'Escape') setEditKey(null);
+        }}
+      >
+        <option value="">—</option>
+        <option value="Cash">Cash</option>
+        <option value="Loan">Loan</option>
+        <option value="Seller Financing">Seller Financing</option>
+        <option value="Private Money">Private Money</option>
+        <option value="Hard Money">Hard Money</option>
+      </select>
+    </td>
+  );
+}
+
+// Acquisition Type: dropdown
+if (col.key === 'acquisition_type') {
+  return (
+    <td key={col.key} style={baseTdStyle}>
+      <select
+        value={editValue ?? ''}
+        style={{ ...inputCellStyle, textAlign: 'center' }}
+        autoFocus
+        disabled={saving}
+        onChange={(e) => setEditValue(e.target.value)}
+        onBlur={() => saveEdit(col.key)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') saveEdit(col.key);
+          if (e.key === 'Escape') setEditKey(null);
+        }}
+      >
+        <option value="">—</option>
+        <option value="1031 Exchange">1031 Exchange</option>
+        <option value="Standard Purchase">Standard Purchase</option>
+        <option value="Foreclosure / REO">Foreclosure / REO</option>
+        <option value="Auction">Auction</option>
+        <option value="Inheritance / Gift">Inheritance / Gift</option>
+      </select>
+    </td>
+  );
+}
 
                 // Editing UI for main fields (borderless inputs)
                 return (
@@ -366,15 +401,13 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                         if (e.key === 'Escape') setEditKey(null);
                       }}
                     />
-                    {saving && <InlineSpinner />}
                   </td>
                 );
               })}
             </tr>
 
             {/* Notes row (label + one wide cell) */}
-            <tr style={editKey === 'notes' ? { outline: '2px solid #325dae', background: HILITE_BG } : undefined}>
-              {/* Notes label — 1 unit */}
+            <tr>
               <td
                 style={{
                   ...cellStyle,
@@ -389,14 +422,13 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                 Notes
               </td>
 
-              {/* Notes value — spans remaining 8 units */}
               <td
                 colSpan={MAX_COLS - 1}
                 style={{
                   ...cellStyle,
                   textAlign: 'left',
                   cursor: 'pointer',
-                  ...(editKey === 'notes' ? { boxShadow: FOCUS_RING } : {}),
+                  ...(editKey === 'notes' ? { boxShadow: FOCUS_RING, background: '#eef5ff' } : {}),
                 }}
                 onClick={() => startEdit('notes')}
               >
@@ -421,29 +453,14 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                     <span style={{ color: '#bbb' }}>—</span>
                   )
                 )}
-
-                {editKey === 'notes' && saving && <InlineSpinner />}
               </td>
             </tr>
           </tbody>
         </Table>
       </div>
 
-      {data?.financing_type === 'LOAN' && (
+      {data?.financing_type === 'Loan' && (
         <div style={{ marginTop: 26, width: '100%' }}>
-          <Title
-            order={3}
-            style={{
-              marginBottom: 18,
-              fontWeight: 800,
-              color: '#4d4637',
-              letterSpacing: 1,
-              marginTop: 36,
-              textTransform: 'uppercase',
-            }}
-          >
-            LOAN DETAILS
-          </Title>
           <LoanDetailsTable property_id={property_id} />
         </div>
       )}

@@ -112,3 +112,14 @@ model LoanDetails {
   @@unique([loan_id, property_id])
   @@map("loan_details")
 }
+
+model Contact {
+  contact_id     Int      @id @default(autoincrement())
+  contact_name   String   @db.VarChar(255)   // Name (required, not nullable)
+  contact_phone  String   @db.VarChar(20)    // Phone (required, not nullable, stored as string for flexibility)
+  contact_email  String?  @db.VarChar(255)   // Email (nullable)
+  contact_type   String?  @db.VarChar(100)   // Type (nullable)
+  contact_notes  String?  @db.Text           // Notes (nullable)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+}

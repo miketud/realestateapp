@@ -230,15 +230,24 @@ export default function RentRollTable({ property_id }: RentRollTableProps) {
         <button style={arrowButtonStyle} onClick={() => handleYearChange(year + 1)}>Next &#8594;</button>
       </div>
 
-      {saveError && (
-        <div style={{
-          marginBottom: 16, padding: '10px 18px', background: '#ffeded', color: '#a13d3d',
-          border: '1.5px solid #e57e7e', borderRadius: 6, fontWeight: 600, fontSize: 16, letterSpacing: 0.5,
-        }}>
-          {saveError}
-        </div>
-      )}
-
+{saveError && (
+  <div
+    style={{
+      width: TABLE_WIDTH,        // 🔹 Constrain to table width
+      marginBottom: 16,
+      padding: '10px 18px',
+      background: '#ffeded',
+      color: '#a13d3d',
+      border: '1.5px solid #e57e7e',
+      borderRadius: 6,
+      fontWeight: 600,
+      fontSize: 16,
+      letterSpacing: 0.5,
+    }}
+  >
+    {saveError}
+  </div>
+)}
       <div style={{ width: TABLE_WIDTH }}>
         <Table
           highlightOnHover

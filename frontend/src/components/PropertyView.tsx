@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import {
   Box, Image, Title, Divider, Table, Loader, Center, Button,
 } from '@mantine/core';
@@ -9,22 +9,21 @@ import TransactionLog, { type TransactionRow } from './TransactionLog';
 import PurchaseDetailsTable from './PurchaseDetailsTable';
 
 // --- Grid / sizing ---
-const COL_WIDTH = 175;            // 1 unit
+const COL_WIDTH = 175;
 const FONT_SIZE = 16;
-const MAX_COLS = 9;               // 9 units per row
+const MAX_COLS = 9;
 const TABLE_WIDTH = COL_WIDTH * MAX_COLS;
 
-// --- API base (kept consistent with TransactionLog) ---
+// --- API base ---
 const API_BASE =
   (import.meta as any)?.env?.VITE_API_BASE?.replace(/\/$/, '') ||
   'http://localhost:3000';
 const API = `${API_BASE}/api`;
 
-// --- Visual primitives (match Rent/Transaction style) ---
+// --- Visual primitives ---
 const HILITE_BG = '#eef5ff';
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
 
-// Borderless inline input (no textbox border)
 const inputCellStyle: React.CSSProperties = {
   width: '100%',
   fontSize: FONT_SIZE,
@@ -40,7 +39,6 @@ const inputCellStyle: React.CSSProperties = {
   textAlign: 'center',
 };
 
-// Base cell
 const cellBase: React.CSSProperties = {
   border: '1px solid #222',
   padding: '13px',
@@ -48,12 +46,10 @@ const cellBase: React.CSSProperties = {
   textAlign: 'center',
   background: '#fff',
   fontSize: FONT_SIZE,
-  // wrapping like other tables
   whiteSpace: 'normal',
   overflowWrap: 'anywhere',
   wordBreak: 'break-word',
 };
-// Header base
 const headerBase: React.CSSProperties = {
   ...cellBase,
   background: '#ece8d4',
@@ -61,7 +57,6 @@ const headerBase: React.CSSProperties = {
   fontWeight: 700,
   textTransform: 'uppercase',
 };
-// Single-unit helpers
 const cellSingleUnit: React.CSSProperties = {
   ...cellBase,
   width: COL_WIDTH,
@@ -74,22 +69,6 @@ const headerSingleUnit: React.CSSProperties = {
   minWidth: COL_WIDTH,
   maxWidth: COL_WIDTH,
 };
-
-function InlineSpinner() {
-  return (
-    <svg
-      style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 8, width: 16, height: 16 }}
-      viewBox="0 0 50 50"
-    >
-      <circle
-        cx="25" cy="25" r="20" fill="none" stroke="#325dae" strokeWidth="5"
-        strokeDasharray="31.415, 31.415" strokeLinecap="round"
-      >
-        <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="0.8s" repeatCount="indefinite" />
-      </circle>
-    </svg>
-  );
-}
 
 type Property = {
   property_id: number;
@@ -117,23 +96,329 @@ type PropertyViewProps = {
 
 const REQUIRED_FIELDS = ['property_name', 'address', 'owner', 'type', 'status'] as const;
 
+/* === Contact search + pin (cards) === */
+type Contact = {
+  contact_id: number;
+  name: string;
+  phone: string;
+  email?: string;
+  contact_type?: string;
+  notes?: string;
+  created_at: number;
+  updated_at: number;
+};
+
+function ContactSearchPins({ property_id, width }: { property_id: number; width: number }) {
+  const TABLE_BORDER = 2;
+  const INPUT_BORDER = 2;
+  const NUDGE = 2;
+  const inputOuterWidth = Math.max(0, width - (TABLE_BORDER - INPUT_BORDER) - NUDGE);
+
+  const PIN_KEY = (pid: number) => `property_contact_pins_${pid}`;
+
+  const toDigits = (v: string) => (v || '').replace(/\D/g, '');
+  const clamp10 = (d: string) => d.slice(0, 10);
+  const fmtUSPhoneFull = (digits: string) => {
+    const d = clamp10(toDigits(digits));
+    if (d.length !== 10) return d;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  };
+
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Contact[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [hoverIdx, setHoverIdx] = useState(-1);
+
+  const [pinnedIds, setPinnedIds] = useState<number[]>(() => {
+    try {
+      const raw = localStorage.getItem(PIN_KEY(property_id));
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [allCache, setAllCache] = useState<Record<number, Contact>>({});
+
+  useEffect(() => {
+    localStorage.setItem(PIN_KEY(property_id), JSON.stringify(pinnedIds));
+  }, [pinnedIds, property_id]);
+
+  const refreshPinned = useCallback(async () => {
+    if (!pinnedIds.length) return;
+    try {
+      const fetched = await Promise.allSettled(
+        pinnedIds.map((id) => fetch(`${API}/contacts/${id}`).then((r) => r.json()))
+      );
+      setAllCache((prev) => {
+        const next = { ...prev };
+        for (const res of fetched) {
+          if (res.status === 'fulfilled' && res.value?.contact_id) {
+            next[res.value.contact_id] = res.value as Contact;
+          }
+        }
+        return next;
+      });
+    } catch { /* ignore */ }
+  }, [pinnedIds]);
+
+  useEffect(() => { refreshPinned(); }, [refreshPinned]);
+
+  useEffect(() => {
+    const onFocus = () => refreshPinned();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshPinned]);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/contacts`);
+      const data = await r.json();
+      const arr = Array.isArray(data) ? data : [];
+      setResults(arr);
+      setOpen(true);
+      setAllCache((prev) => {
+        const next = { ...prev };
+        arr.forEach((c: Contact) => (next[c.contact_id] = c));
+        return next;
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchQuery = useCallback(async (q: string) => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/contacts?q=${encodeURIComponent(q)}`);
+      const data = await r.json();
+      const arr = Array.isArray(data) ? data : [];
+      setResults(arr);
+      setOpen(true);
+      setAllCache((prev) => {
+        const next = { ...prev };
+        arr.forEach((c: Contact) => (next[c.contact_id] = c));
+        return next;
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const debounceRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    window.clearTimeout(debounceRef.current);
+    const q = query.trim();
+    if (!q) return;
+    debounceRef.current = window.setTimeout(() => {
+      fetchQuery(q);
+    }, 180);
+    return () => window.clearTimeout(debounceRef.current);
+  }, [query, fetchQuery]);
+
+  const pinnedContacts = useMemo(
+    () => pinnedIds.map((id) => allCache[id]).filter(Boolean) as Contact[],
+    [pinnedIds, allCache]
+  );
+
+  const selectContact = (c: Contact) => {
+    setPinnedIds((prev) => (prev.includes(c.contact_id) ? prev : [...prev, c.contact_id]));
+    setQuery('');
+    setOpen(false);
+    setHoverIdx(-1);
+    setAllCache((prev) => ({ ...prev, [c.contact_id]: c }));
+  };
+  const removePinned = (id: number) => {
+    setPinnedIds((prev) => prev.filter((x) => x !== id));
+  };
+
+  const openList = () => {
+    if (query.trim()) fetchQuery(query.trim());
+    else fetchAll();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') { setOpen(false); return; }
+    if (!open || !results.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHoverIdx((i) => (i + 1) % results.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHoverIdx((i) => (i - 1 + results.length) % results.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const idx = hoverIdx >= 0 ? hoverIdx : 0;
+      selectContact(results[idx]);
+    }
+  };
+
+  const outerWrapRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!outerWrapRef.current) return;
+      if (!outerWrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const outerWrap: React.CSSProperties = { width, marginTop: 12, position: 'relative' };
+  const inputWrap: React.CSSProperties = { width: inputOuterWidth, position: 'relative' };
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    border: '2px solid #111',
+    borderRadius: 0,
+    padding: '10px 12px',
+    fontSize: 16,
+    outline: 'none',
+    background: '#fff',
+    boxSizing: 'border-box',
+  };
+  const listStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: 'calc(100% + 6px)',
+    left: 0,
+    width: '100%',
+    maxHeight: 320,
+    overflowY: 'auto',
+    background: '#fff',
+    border: '2px solid #111',
+    zIndex: 50,
+    boxShadow: '0 8px 20px rgba(0,0,0,0.08)',
+  };
+  const rowStyle = (active: boolean): React.CSSProperties => ({
+    display: 'grid',
+    gridTemplateColumns: '1.2fr 1fr 1fr 0.8fr',
+    gap: 8,
+    padding: '10px 12px',
+    borderTop: '1px solid #ddd',
+    cursor: 'pointer',
+    background: active ? '#eef5ff' : '#fff',
+    fontSize: 14,
+    alignItems: 'center',
+  });
+  const pinGrid: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+    gap: 12,
+    marginTop: 12,
+    width,
+  };
+  const cardStyle: React.CSSProperties = {
+    position: 'relative',
+    width: '100%',
+    minWidth: 0,
+    border: '2px solid #111',
+    background: '#ffffff',
+    padding: '12px 14px',
+    borderRadius: 8,
+    boxShadow: '0 6px 16px rgba(0,0,0,0.06)',
+    boxSizing: 'border-box',
+  };
+  const removeBtn: React.CSSProperties = {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    background: '#fff',
+    border: '2px solid #111',
+    borderRadius: 999,
+    lineHeight: 0,
+    display: 'grid',
+    placeItems: 'center',
+    cursor: 'pointer',
+  };
+
+  return (
+    <div ref={outerWrapRef} style={outerWrap}>
+      <div style={{ fontWeight: 900, letterSpacing: 1, marginBottom: 6 }}>CONTACT</div>
+
+      <div style={inputWrap}>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={openList}
+          onClick={openList}
+          onKeyDown={onKeyDown}
+          placeholder="Search & pin a contact (name, phone, email, type)…"
+          style={inputStyle}
+        />
+        {open && results.length > 0 && (
+          <div style={listStyle}>
+            {loading && <div style={{ padding: 10, fontSize: 14, color: '#666' }}>Loading…</div>}
+            {results.map((c, i) => (
+              <div
+                key={c.contact_id}
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseDown={(e) => { e.preventDefault(); selectContact(c); }}
+                style={rowStyle(i === hoverIdx)}
+                title="Click to pin"
+              >
+                <div style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || '—'}</div>
+                <div>{c.phone ? fmtUSPhoneFull(c.phone) : '—'}</div>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.email || '—'}</div>
+                <div style={{ color: '#444' }}>{c.contact_type || '—'}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={pinGrid}>
+        {pinnedContacts.map((c) => (
+          <div key={c.contact_id} style={cardStyle}>
+            <button
+              aria-label="Remove pinned contact"
+              title="Remove"
+              onClick={() => removePinned(c.contact_id)}
+              style={removeBtn}
+            >
+              <span style={{ fontSize: 16, fontWeight: 900, marginTop: -2 }}>×</span>
+            </button>
+
+            <div style={{ fontWeight: 900, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {c.name || '—'}
+            </div>
+            <div style={{ fontSize: 13, color: '#444', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {c.phone ? fmtUSPhoneFull(c.phone) : '—'}
+              {c.email ? <> · {c.email}</> : null}
+              {c.contact_type ? <> · {c.contact_type}</> : null}
+            </div>
+            {c.notes ? (
+              <div style={{ marginTop: 6, fontSize: 13, color: '#333', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {c.notes}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================
+   Property View
+   ============================================ */
+
 export default function PropertyView({ property_id, onBack, refreshProperties }: PropertyViewProps) {
   const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Transactions (load from same API base used by edits)
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
 
-  // Image
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Inline edit
   const [editingKey, setEditingKey] = useState<keyof Property | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [saving, setSaving] = useState(false);
-  const [editError, setEditError] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // separate saving flag for the toggle
+  const [togglingIncome, setTogglingIncome] = useState(false);
 
   // Load transactions
   useEffect(() => {
@@ -147,7 +432,7 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
       .catch(() => setTransactions([]));
   }, [property_id]);
 
-  // Load property + image
+  // Load property (image upload removed)
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -169,72 +454,54 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
           setError(null);
         }
       })
-      .catch((err: any) => {
-        console.error(err);
+      .catch(() => {
         setProperty(null);
         setError('Failed to load property.');
       })
       .finally(() => setLoading(false));
-
-    const saved = localStorage.getItem(`property_image_${property_id}`);
-    setImageUrl(saved);
   }, [property_id]);
 
-  // Image handlers
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageUrl(reader.result as string);
-        localStorage.setItem(`property_image_${property_id}`, reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  }
-  function handleBoxClick() {
-    fileInputRef.current?.click();
-  }
-
-  // Edit handlers
   function handleCellClick(key: keyof Property) {
     if (!loading && property) {
       setEditingKey(key);
-      setEditError(false);
-      setEditValue(property[key] !== undefined && property[key] !== null ? String(property[key]) : '');
+      setSaveError(null);
+      setEditValue(
+        property[key] !== undefined && property[key] !== null
+          ? String(property[key])
+          : ''
+      );
     }
   }
 
-  async function handleSave(key: keyof Property) {
+  async function handleSave(key: keyof Property, customValue?: any) {
     if (!property) return;
 
-    if (REQUIRED_FIELDS.includes(key as any) && (!editValue.trim() || editValue.trim() === '')) {
-      setEditError(true);
+    let value = customValue !== undefined ? customValue : editValue;
+
+    if (REQUIRED_FIELDS.includes(key as any) && (!String(value).trim() || String(value).trim() === '')) {
+      setSaveError(`${key} cannot be empty.`);
       return;
     }
-    setEditError(false);
 
     setSaving(true);
     try {
-      let sendValue: any = editValue;
-
       if (key === 'zipcode' || key === 'year' || key === 'market_value') {
-        sendValue = editValue.trim() === '' ? null : Number(editValue);
-        if (sendValue !== null && isNaN(sendValue)) {
-          alert('Please enter a valid number.');
+        value = String(value).trim() === '' ? null : Number(value);
+        if (value !== null && isNaN(value)) {
+          setSaveError('Please enter a valid number.');
           setSaving(false);
           return;
         }
       }
 
-      await updatePropertyField(property.property_id, key, sendValue);
-      setProperty(prev => (prev ? { ...prev, [key]: sendValue } : prev));
-    } catch (e) {
-      alert('Update failed. Please try again.');
+      await updatePropertyField(property.property_id, key, value);
+      setProperty(prev => (prev ? { ...prev, [key]: value } : prev));
+      setSaveError(null);
+    } catch {
+      setSaveError('Update failed. Please try again.');
     }
     setEditingKey(null);
     setSaving(false);
-    setEditError(false);
   }
 
   function handleBack() {
@@ -242,19 +509,30 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
     refreshProperties();
   }
 
-  // Income toggle (DB + UI)
-  async function toggleIncomeProducing() {
-    if (!property) return;
-    const newVal = property.income_producing === 'YES' ? 'NO' : 'YES';
-    try {
-      await updatePropertyField(property.property_id, 'income_producing', newVal);
-      setProperty(prev => (prev ? { ...prev, income_producing: newVal } : prev));
-    } catch {
-      alert('Failed to update Income Producing status.');
-    }
-  }
+  // --- Income-Producing toggle (no flash): only render after property is loaded
+  const isIncomeYes = property?.income_producing === 'YES';
+  const incomeLabel = isIncomeYes ? 'INCOME-PRODUCING: YES' : 'INCOME-PRODUCING: NO';
 
-  // ---------- Helpers ----------
+  const toggleIncomeProducing = async () => {
+    if (!property || togglingIncome) return;
+    const nextVal: 'YES' | 'NO' = isIncomeYes ? 'NO' : 'YES';
+
+    // optimistic UI
+    setTogglingIncome(true);
+    setProperty(prev => (prev ? { ...prev, income_producing: nextVal } : prev));
+
+    try {
+      await updatePropertyField(property.property_id, 'income_producing' as keyof Property, nextVal);
+      setSaveError(null);
+    } catch {
+      // revert on failure
+      setProperty(prev => (prev ? { ...prev, income_producing: isIncomeYes ? 'YES' : 'NO' } : prev));
+      setSaveError('Failed to update Income-Producing status. Please try again.');
+    } finally {
+      setTogglingIncome(false);
+    }
+  };
+
   function ColsPx() {
     return (
       <colgroup>
@@ -265,14 +543,6 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
     );
   }
 
-  // Section membership for row highlight
-  const row1Keys: Array<keyof Property> = ['property_name', 'address', 'city', 'state', 'zipcode', 'county'];
-  const row2Keys: Array<keyof Property> = ['owner', 'year', 'type', 'market_value'];
-
-  const isRow1Editing = editingKey ? row1Keys.includes(editingKey) : false;
-  const isRow2Editing = editingKey ? row2Keys.includes(editingKey) : false;
-
-  // Header cell
   function HeaderCell({ label, units = 1, blackout = false }: { label?: string; units?: number; blackout?: boolean }) {
     const style = units === 1
       ? (blackout ? { ...headerSingleUnit, background: '#000', color: '#000' } : headerSingleUnit)
@@ -285,31 +555,153 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
     );
   }
 
-  // Value cell (inline editable with row/cell highlight)
-  function ValueCell({
-    k, units = 1, type,
-  }: { k: keyof Property; units?: number; type?: 'number' | 'text' }) {
+  function ValueCell({ k, units = 1, type }: { k: keyof Property; units?: number; type?: 'number' | 'text' }) {
     const val = property?.[k];
     const isRequired = REQUIRED_FIELDS.includes(k as any);
     const tdBase = units === 1 ? cellSingleUnit : cellBase;
     const isEditing = editingKey === k;
 
-    // Editing state
+    // Special editors
+    if (k === 'type' && isEditing) {
+      return (
+        <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
+          <select
+            value={editValue ?? ''}
+            style={{ ...inputCellStyle, textAlign: 'center' }}
+            autoFocus
+            disabled={saving}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={() => handleSave(k)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave(k);
+              if (e.key === 'Escape') setEditingKey(null);
+            }}
+          >
+            <option value="">—</option>
+            <option value="Commercial">Commercial</option>
+            <option value="Residential">Residential</option>
+            <option value="Land">Land</option>
+          </select>
+        </td>
+      );
+    }
+
+    if (k === 'year' && isEditing) {
+      const yearVal = editValue || String(new Date().getFullYear());
+      return (
+        <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
+          <input
+            type="number"
+            value={yearVal}
+            style={inputCellStyle}
+            autoFocus
+            disabled={saving}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={() => handleSave(k)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave(k);
+              if (e.key === 'Escape') setEditingKey(null);
+            }}
+          />
+        </td>
+      );
+    }
+
+    if (k === 'zipcode' && isEditing) {
+      return (
+        <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
+          <input
+            type="text"
+            value={editValue ?? ''}
+            style={inputCellStyle}
+            autoFocus
+            disabled={saving}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, '').slice(0, 5);
+              setEditValue(val);
+            }}
+            onBlur={async () => {
+              if (editValue.length === 5) {
+                await handleSave(k);
+
+                // best-effort ZIP->City/State lookup
+                try {
+                  const res = await fetch(`https://api.zippopotam.us/us/${editValue}`);
+                  if (res.ok) {
+                    const data = await res.json();
+                    const place = data.places?.[0];
+                    if (place) {
+                      const cityName = place['place name'];
+                      const stateAbbr = place['state abbreviation'];
+
+                      await handleSave('city' as keyof Property, cityName);
+                      setProperty(prev => prev ? { ...prev, city: cityName } : prev);
+
+                      await handleSave('state' as keyof Property, stateAbbr);
+                      setProperty(prev => prev ? { ...prev, state: stateAbbr } : prev);
+                    }
+                  }
+                } catch (err) {
+                  console.error('ZIP lookup failed:', err);
+                }
+              } else {
+                setSaveError('Zip code must be exactly 5 digits.');
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (editValue.length === 5) {
+                  e.currentTarget.blur();
+                } else {
+                  setSaveError('Zip code must be exactly 5 digits.');
+                }
+              }
+              if (e.key === 'Escape') setEditingKey(null);
+            }}
+          />
+        </td>
+      );
+    }
+
+    if (k === 'state' && isEditing) {
+      const states = [
+        "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN",
+        "MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA",
+        "WA","WV","WI","WY"
+      ];
+      return (
+        <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
+          <select
+            value={editValue ?? ''}
+            style={{ ...inputCellStyle, textAlign: 'center' }}
+            autoFocus
+            disabled={saving}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={() => handleSave(k)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave(k);
+              if (e.key === 'Escape') setEditingKey(null);
+            }}
+          >
+            <option value="">—</option>
+            {states.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </td>
+      );
+    }
+
+    // Generic editor
     if (isEditing) {
       return (
-        <td
-          colSpan={units}
-          style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}
-        >
+        <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
           <input
             autoFocus
             style={inputCellStyle}
             value={editValue}
             type={type === 'number' ? 'number' : 'text'}
-            onChange={(e) => {
-              setEditValue(e.target.value);
-              if (editError) setEditError(false);
-            }}
+            onChange={(e) => setEditValue(e.target.value)}
             onBlur={() => handleSave(k)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSave(k);
@@ -317,18 +709,13 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
             }}
             disabled={saving}
           />
-          {saving && <InlineSpinner />}
         </td>
       );
     }
 
-    // Display state
+    // Read-only cell (click to edit)
     return (
-      <td
-        colSpan={units}
-        style={{ ...tdBase, cursor: 'pointer' }}
-        onClick={() => handleCellClick(k)}
-      >
+      <td colSpan={units} style={{ ...tdBase, cursor: 'pointer' }} onClick={() => handleCellClick(k)}>
         {val !== undefined && val !== null && val !== ''
           ? (k === 'market_value' ? `$${Number(val).toLocaleString()}` : String(val))
           : isRequired
@@ -343,26 +730,12 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
   }
 
   return (
-    <Box style={{
-      background: '#f4f4f0',
-      minHeight: '100vh',
-      fontFamily: 'system-ui, Arial, Helvetica, sans-serif',
-      padding: 0,
-    }}>
+    <Box style={{ background: '#ffffffff', minHeight: '100vh', fontFamily: 'system-ui, Arial, Helvetica, sans-serif', padding: 0 }}>
       {/* Top bar */}
-      <Box style={{
-        display: 'flex',
-        alignItems: 'center',
-        padding: '40px 40px 20px 40px',
-        gap: 28,
-        position: 'relative',
-      }}>
+      <Box style={{ display: 'flex', alignItems: 'center', padding: '40px 40px 20px 40px', gap: 28, position: 'relative' }}>
         <Image src={logo} alt="Logo" width={92} height={92} style={{ objectFit: 'contain' }} />
         <Box style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <Title
-            order={1}
-            style={{ fontSize: 52, fontWeight: 900, color: '#111', letterSpacing: 2, fontFamily: 'inherit' }}
-          >
+          <Title order={1} style={{ fontSize: 52, fontWeight: 900, color: '#111', letterSpacing: 2, fontFamily: 'inherit' }}>
             PROPERTY VIEW
           </Title>
           {property?.property_name && (
@@ -373,74 +746,9 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
             </Box>
           )}
         </Box>
-
-        {/* Property image box */}
-        <Box
-          style={{
-            marginLeft: 'auto',
-            position: 'relative',
-            width: 190,
-            height: 140,
-            border: '1.5px solid #ccc',
-            borderRadius: 4,
-            background: '#000000ff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.05)',
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-          onClick={handleBoxClick}
-          title="Click to upload/change image"
-        >
-          {imageUrl ? (
-            <>
-              <img
-                src={imageUrl}
-                alt="Property"
-                style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none', filter: 'brightness(0.97)' }}
-              />
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setImageUrl(null);
-                  localStorage.removeItem(`property_image_${property_id}`);
-                }}
-                style={{
-                  position: 'absolute',
-                  top: 8,
-                  right: 8,
-                  width: 20,
-                  height: 20,
-                  background: 'rgba(255,255,255,0.7)',
-                  border: 'none',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s',
-                  padding: 0,
-                }}
-                tabIndex={-1}
-                title="Clear Image"
-              >
-                <span style={{ fontSize: 16, color: '#888', fontWeight: 700, lineHeight: 1, pointerEvents: 'none', marginTop: '-2px' }}>
-                  ×
-                </span>
-              </button>
-            </>
-          ) : (
-            <span style={{ color: '#bbb', fontSize: 18 }}>No Image</span>
-          )}
-          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
-        </Box>
       </Box>
 
-      <Divider style={{ height: 7, background: '#111', boxShadow: '0px 5px 18px 0 rgba(0,0,0,0.18)', border: 'none', marginBottom: 44 }} />
+      <Divider style={{ height: 7, background: '#111', boxShadow: '0px 5px 18px 0 rgba(0,0,0,0.18)', border: 'none', marginBottom: 44, maxWidth: 1800 }} />
 
       <Box style={{ margin: '0 40px 40px 40px' }}>
         <Button
@@ -462,33 +770,56 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
           DASHBOARD
         </Button>
 
-        {/* OVERVIEW + Income Producing toggle */}
+        {/* OVERVIEW header row with top-right toggle (hidden until property is loaded) */}
         <Box style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, width: TABLE_WIDTH }}>
           <Title order={3} style={{ margin: 0, fontWeight: 900, color: '#111', letterSpacing: 1 }}>
             OVERVIEW
           </Title>
+
           {property && (
             <Button
               onClick={toggleIncomeProducing}
+              disabled={togglingIncome}
+              title="Toggle income-producing status"
               style={{
-                height: 36,
-                fontSize: 16,
-                fontWeight: 800,
-                textTransform: 'uppercase',
-                padding: '0 20px',
-                borderRadius: 0,
                 border: '2px solid #111',
-                background: property.income_producing === 'YES' ? '#39d353' : '#f44336',
-                color: '#fff',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
+                borderRadius: 0,
+                background: isIncomeYes ? '#38d84bff' : '#ff0000ff',
+                color: '#ffffff',
+                fontWeight: 800,
+                fontSize: 14,
+                padding: '8px 14px',
+                textTransform: 'uppercase',
+                letterSpacing: 0.8,
+                boxShadow: 'none',
+                marginLeft: 16,
+                transition: 'background 160ms ease',
               }}
-              title="Toggle Income Producing"
             >
-              {property.income_producing === 'YES' ? 'INCOME PRODUCING' : 'NOT INCOME PRODUCING'}
+              {togglingIncome ? 'SAVING…' : incomeLabel}
             </Button>
           )}
         </Box>
+
+        {/* Error banner */}
+        {saveError && (
+          <div
+            style={{
+              width: TABLE_WIDTH,
+              marginBottom: 16,
+              padding: '10px 18px',
+              background: '#ffeded',
+              color: '#a13d3d',
+              border: '1.5px solid #e57e7e',
+              borderRadius: 6,
+              fontWeight: 600,
+              fontSize: 16,
+              letterSpacing: 0.5,
+            }}
+          >
+            {saveError}
+          </div>
+        )}
 
         {loading ? (
           <Center style={{ minHeight: '60vh' }}>
@@ -501,7 +832,7 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
         ) : property ? (
           <>
             {/* -------- OVERVIEW TABLE -------- */}
-            <Box style={{ width: TABLE_WIDTH, marginBottom: 18 }}>
+            <Box style={{ width: TABLE_WIDTH, marginBottom: 12 }}>
               <Table
                 striped
                 highlightOnHover
@@ -510,7 +841,7 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
                   fontSize: FONT_SIZE,
                   borderCollapse: 'collapse',
                   border: '2px solid #222',
-                  boxShadow: 'inset 0 0 10px rgba(0,0,0,0.06)',
+                  boxShadow: '0 6px 18px rgba(0,0,0,0.12)', // ✅ outer drop shadow
                   background: '#fff',
                   width: '100%',
                   textAlign: 'center',
@@ -520,42 +851,44 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
                 <ColsPx />
 
                 <tbody>
-                  {/* SECTION 1 — headers (2 + 3 + 1 + 1 + 1 + 1 = 9) */}
+                  {/* Row 1 headers */}
                   <tr>
                     <HeaderCell label="Property Name" units={2} />
                     <HeaderCell label="Address" units={3} />
-                    <HeaderCell label="City" units={1} />
-                    <HeaderCell label="State" units={1} />
-                    <HeaderCell label="Zip Code" units={1} />
-                    <HeaderCell label="County" units={1} />
-                  </tr>
-                  {/* SECTION 1 — values */}
-                  <tr style={isRow1Editing ? { outline: '2px solid #325dae', background: HILITE_BG } : undefined}>
-                    <ValueCell k="property_name" units={2} />
-                    <ValueCell k="address" units={3} />
-                    <ValueCell k="city" units={1} />
-                    <ValueCell k="state" units={1} />
-                    <ValueCell k="zipcode" units={1} type="number" />
-                    <ValueCell k="county" units={1} />
+                    <HeaderCell label="City" />
+                    <HeaderCell label="State" />
+                    <HeaderCell label="Zip Code" />
+                    <HeaderCell label="County" />
                   </tr>
 
-                  {/* SECTION 2 — headers (2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 = 9) */}
+                  {/* Row 1 values */}
+                  <tr>
+                    <ValueCell k="property_name" units={2} />
+                    <ValueCell k="address" units={3} />
+                    <ValueCell k="city" />
+                    <ValueCell k="state" />
+                    <ValueCell k="zipcode" />
+                    <ValueCell k="county" />
+                  </tr>
+
+                  {/* Row 2 headers */}
                   <tr>
                     <HeaderCell label="Owner" units={2} />
-                    <HeaderCell label="Year" units={1} />
-                    <HeaderCell label="Type" units={1} />
-                    <HeaderCell label="Current Market Value" units={1} />
-                    <HeaderCell blackout units={1} />
-                    <HeaderCell blackout units={1} />
-                    <HeaderCell blackout units={1} />
-                    <HeaderCell blackout units={1} />
+                    <HeaderCell label="Year" />
+                    <HeaderCell label="Type" />
+                    <HeaderCell label="Current Market Value" />
+                    <HeaderCell blackout />
+                    <HeaderCell blackout />
+                    <HeaderCell blackout />
+                    <HeaderCell blackout />
                   </tr>
-                  {/* SECTION 2 — values */}
-                  <tr style={isRow2Editing ? { outline: '2px solid #325dae', background: HILITE_BG } : undefined}>
+
+                  {/* Row 2 values */}
+                  <tr>
                     <ValueCell k="owner" units={2} />
-                    <ValueCell k="year" units={1} type="number" />
-                    <ValueCell k="type" units={1} />
-                    <ValueCell k="market_value" units={1} type="number" />
+                    <ValueCell k="year" type="number" />
+                    <ValueCell k="type" />
+                    <ValueCell k="market_value" type="number" />
                     <BlackCell />
                     <BlackCell />
                     <BlackCell />
@@ -565,27 +898,27 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
               </Table>
             </Box>
 
-            {/* Purchase Details */}
+            {/* === CONTACT CARDS === */}
+            <ContactSearchPins property_id={property.property_id} width={TABLE_WIDTH} />
+
             <PurchaseDetailsTable property_id={property.property_id} />
 
-            {/* Rent Log */}
-            <Box style={{ marginTop: 48 }}>
-              <Title order={3} style={{ marginBottom: 24, fontWeight: 800, color: '#bd642c' }}>
-                RENT LOG
-              </Title>
-              <RentRollTable property_id={property.property_id} />
-            </Box>
+            {/* --- RENT LOG: only visible if income-producing === 'YES' --- */}
+            {isIncomeYes && (
+              <Box style={{ marginTop: 48 }}>
+                <Title order={3} style={{ marginBottom: 24, fontWeight: 800, color: '#bd642c' }}>
+                  RENT LOG
+                </Title>
+                <RentRollTable property_id={property.property_id} />
+              </Box>
+            )}
 
-            {/* Transaction Log */}
+            {/* --- TRANSACTION LOG (always visible) --- */}
             <Box style={{ marginTop: 64 }}>
               <Title order={3} style={{ marginBottom: 24, fontWeight: 800, color: '#31506f' }}>
                 TRANSACTION LOG
               </Title>
-              <TransactionLog
-                property_id={property.property_id}
-                transactions={transactions}
-                setTransactions={setTransactions}
-              />
+              <TransactionLog property_id={property.property_id} transactions={transactions} setTransactions={setTransactions} />
             </Box>
           </>
         ) : null}

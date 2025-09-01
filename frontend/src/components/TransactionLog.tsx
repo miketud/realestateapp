@@ -20,6 +20,8 @@ const ENTRY_ROW_BG = '#f4f9ff';
 const HILITE_BG = '#eef5ff';
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
 
+
+
 // --- STYLES ---
 const thStyle: CSSProperties = {
   border: '1px solid #111', padding: '10px 14px', background: '#164e7e', color: '#fff',

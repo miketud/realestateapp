@@ -1,9 +1,45 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client'; // <-- include Prisma enum + client
 
 const prisma = new PrismaClient();
-const app = Fastify({ logger: false });
+const app = Fastify({ logger: true });
+
+// ---- Contacts helpers ----
+const toDigits = (v: string) => (v || '').replace(/\D/g, '');
+const clamp10 = (d: string) => d.slice(0, 10);
+
+// Map UI payload -> Prisma data
+function uiToDbContact(body: any) {
+  // required: name, phone
+  const name = (body?.name ?? '').trim();
+  const phoneDigits = clamp10(toDigits(body?.phone ?? ''));
+  if (!name) throw new Error('VALIDATION:name is required');
+  if (phoneDigits.length !== 10) throw new Error('VALIDATION:phone must have 10 digits');
+
+  const data = {
+    contact_name: name,
+    contact_phone: phoneDigits,                 // store digits only
+    contact_email: body?.email ?? null,
+    contact_type: body?.contact_type ?? null,
+    contact_notes: body?.notes ?? null,         // UI “notes” -> DB “contact_notes”
+  };
+  return data;
+}
+
+// Map Prisma -> UI shape your ContactList.tsx expects
+function dbToUiContact(c: any) {
+  return {
+    contact_id: c.contact_id,
+    name: c.contact_name,
+    phone: c.contact_phone,    // digits only; you format in UI
+    email: c.contact_email ?? '',
+    contact_type: c.contact_type ?? '',
+    notes: c.contact_notes ?? '',
+    created_at: new Date(c.created_at).getTime(),
+    updated_at: new Date(c.updated_at).getTime(),
+  };
+}
 
 async function start() {
   await app.register(cors, {
@@ -69,15 +105,34 @@ async function start() {
     }
   });
 
-  app.delete('/api/properties/:id', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    try {
-      await prisma.property.delete({ where: { property_id: Number(id) } });
-      reply.status(204).send();
-    } catch {
-      reply.status(404).send({ error: 'Property not found or delete failed' });
+// REPLACE your delete handler with this:
+app.delete('/api/properties/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const propertyId = Number(id);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // delete dependents first
+      await tx.loanDetails.deleteMany({ where: { property_id: propertyId } });
+      await tx.purchaseDetails.deleteMany({ where: { property_id: propertyId } });
+      await tx.rentLog.deleteMany({ where: { property_id: propertyId } });
+      await tx.transaction.deleteMany({ where: { property_id: propertyId } });
+
+      // then the property
+      await tx.property.delete({ where: { property_id: propertyId } });
+    });
+
+    return reply.status(204).send();
+  } catch (e: any) {
+    // not found
+    if (e?.code === 'P2025') {
+      return reply.status(404).send({ message: 'Property not found' });
     }
-  });
+    // any other unexpected error
+    console.error('DELETE /api/properties/:id failed', e);
+    return reply.status(500).send({ message: 'Delete failed', details: e?.message });
+  }
+});
 
   // =====================================================
   // PURCHASE DETAILS
@@ -266,13 +321,27 @@ async function start() {
         },
       };
 
-      // coerce to correct types; undefined means "don't change" on update
-      const updateData: any = {
-        rent_amount: b.rent_amount ?? undefined,
-        date_deposited: b.date_deposited === undefined ? undefined : (b.date_deposited ? new Date(b.date_deposited) : null),
-        check_number: b.check_number ?? undefined,
-        notes: b.notes ?? undefined,
-      };
+
+// detect edits to money fields
+const isAmountKey = Object.prototype.hasOwnProperty.call(b, 'rent_amount');
+const isCheckKey  = Object.prototype.hasOwnProperty.call(b, 'check_number');
+const hasMoneyEdit = isAmountKey || isCheckKey;
+
+// build updates (undefined means "don't change")
+const updateData: any = {
+  rent_amount:   b.rent_amount   ?? undefined,
+  check_number:  b.check_number  ?? undefined,
+  notes:         b.notes         ?? undefined,
+};
+
+// If client supplied a date string, use it.
+// Otherwise, if Amount or Check were edited, auto-stamp today's date.
+// (Keeps column NOT NULL without forcing a date for unrelated edits.)
+if (b.date_deposited) {
+  updateData.date_deposited = new Date(b.date_deposited);
+} else if (hasMoneyEdit) {
+  updateData.date_deposited = new Date();
+}
 
       const createData: any = {
         property_id: Number(b.property_id),
@@ -373,6 +442,97 @@ app.patch('/api/transactions/:id', async (req, reply) => {
   } catch (e) {
     console.error('PATCH /api/transactions/:id failed', e);
     reply.status(404).send({ error: 'Transaction not found or update failed' });
+  }
+});
+// =====================================================
+// CONTACTS
+// =====================================================
+app.get('/api/contacts', async (req, reply) => {
+  const { q } = (req.query as { q?: string }) || {};
+  const search = (q ?? '').trim();
+  const searchDigits = (q ?? '').replace(/\D/g, '');
+
+  let where: Prisma.ContactWhereInput | undefined;
+  if (search || searchDigits) {
+    where = {
+      OR: [
+        { contact_name:  { contains: search, mode: Prisma.QueryMode.insensitive } },
+        { contact_email: { contains: search, mode: Prisma.QueryMode.insensitive } },
+        { contact_type:  { contains: search, mode: Prisma.QueryMode.insensitive } },
+        { contact_notes: { contains: search, mode: Prisma.QueryMode.insensitive } },
+        ...(searchDigits ? [{ contact_phone: { contains: searchDigits } } as Prisma.ContactWhereInput] : []),
+      ],
+    };
+  }
+
+  const rows = await prisma.contact.findMany({
+    where,
+    orderBy: [{ updated_at: 'desc' }, { contact_id: 'desc' }],
+  });
+
+  reply.send(rows.map(dbToUiContact));
+});
+
+app.get('/api/contacts/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const row = await prisma.contact.findUnique({ where: { contact_id: Number(id) } });
+  if (!row) return reply.status(404).send({ error: 'Not found' });
+  reply.send(dbToUiContact(row));
+});
+
+app.post('/api/contacts', async (req, reply) => {
+  try {
+    const data = uiToDbContact(req.body);
+    const created = await prisma.contact.create({ data });
+    reply.status(201).send(dbToUiContact(created));
+  } catch (e: any) {
+    if (String(e.message).startsWith('VALIDATION:')) {
+      return reply.status(400).send({ error: e.message.replace('VALIDATION:', '') });
+    }
+    console.error(e);
+    reply.status(500).send({ error: 'Failed to create contact' });
+  }
+});
+
+app.patch('/api/contacts/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  try {
+    const patch: Prisma.ContactUpdateInput = {};
+    if ('name' in (req.body as any)) {
+      const name = (req.body as any).name?.trim() ?? '';
+      if (!name) throw new Error('VALIDATION:name is required');
+      patch.contact_name = name;
+    }
+    if ('phone' in (req.body as any)) {
+      const digits = clamp10(toDigits((req.body as any).phone ?? ''));
+      if (digits.length !== 10) throw new Error('VALIDATION:phone must have 10 digits');
+      patch.contact_phone = digits;
+    }
+    if ('email' in (req.body as any))        patch.contact_email = (req.body as any).email ?? null;
+    if ('contact_type' in (req.body as any)) patch.contact_type = (req.body as any).contact_type ?? null;
+    if ('notes' in (req.body as any))        patch.contact_notes = (req.body as any).notes ?? null;
+
+    const updated = await prisma.contact.update({ where: { contact_id: Number(id) }, data: patch });
+    reply.send(dbToUiContact(updated));
+  } catch (e: any) {
+    if (String(e.message).startsWith('VALIDATION:')) {
+      return reply.status(400).send({ error: e.message.replace('VALIDATION:', '') });
+    }
+    if (e?.code === 'P2025') return reply.status(404).send({ error: 'Not found' });
+    console.error(e);
+    reply.status(500).send({ error: 'Failed to update contact' });
+  }
+});
+
+app.delete('/api/contacts/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  try {
+    await prisma.contact.delete({ where: { contact_id: Number(id) } });
+    reply.send({ ok: true });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return reply.status(404).send({ error: 'Not found' });
+    console.error(e);
+    reply.status(500).send({ error: 'Failed to delete contact' });
   }
 });
 

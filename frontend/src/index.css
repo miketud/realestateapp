@@ -89,3 +89,7 @@ input, textarea {
 .input-minimal:focus {
   border-bottom: 2.5px solid #4f46e5; /* Modern indigo focus */
 }
+
+/* Make all options black; keep the placeholder (empty value) gray */
+.select-menu option { color: #111; }
+.select-menu option[value=""] { color: #9aa1a8; } /* your PLACEHOLDER */
