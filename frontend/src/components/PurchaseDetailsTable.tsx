@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Table, Title, Loader, Center } from '@mantine/core';
 import LoanDetailsTable from './LoanDetailsTable';
 
@@ -7,6 +7,8 @@ const MAIN_COL_WIDTH = 175; // 1 unit
 const BASE_FONT_SIZE = 16;
 const MAX_COLS = 9;
 const TABLE_WIDTH = MAIN_COL_WIDTH * MAX_COLS;
+const HEADER_BG = '#000';
+const HEADER_FG = '#fff';
 
 // --- Visual primitives to match Rent/Transaction ---
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
@@ -81,6 +83,115 @@ function ColsPx() {
   );
 }
 
+/* ──────────────────────────────────────────────────────────────────────────────
+   Minimal local-state autocomplete for Buyer/Seller (fast, no lag)
+   - Filters preloaded names while typing
+   - Local text state while editing (prevents parent re-render lag)
+   - Commit on Enter or clicking a suggestion; free-form allowed
+   - No blur commit (mirrors your Dashboard behavior)
+────────────────────────────────────────────────────────────────────────────── */
+function NameAutocompleteSimple({
+  initialValue,
+  suggestions,
+  placeholder = 'Type a name…',
+  onCommit,
+}: {
+  initialValue: string;
+  suggestions: string[];
+  placeholder?: string;
+  onCommit: (finalText: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [text, setText] = useState(initialValue || '');
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const list = useMemo(() => {
+    const q = text.trim().toLowerCase();
+    if (!q) return [];
+    return Array.from(new Set(suggestions))
+      .filter(n => n.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [text, suggestions]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const commit = (val: string) => {
+    onCommit(val);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', height: '100%' }}>
+      <input
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setText(e.target.value);
+          setOpen(true);
+          setActive(0);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (list.length) commit(list[active]);
+            else commit(text);
+          } else if (e.key === 'ArrowDown' && list.length) {
+            e.preventDefault();
+            setActive(i => Math.min(i + 1, list.length - 1));
+          } else if (e.key === 'ArrowUp' && list.length) {
+            e.preventDefault();
+            setActive(i => Math.max(i - 1, 0));
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+        style={inputCellStyle}
+      />
+      {open && list.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            maxHeight: 220,
+            overflowY: 'auto',
+            border: '2px solid #111',
+            background: '#fff',
+            zIndex: 70,
+            boxShadow: '0 8px 18px rgba(0,0,0,0.2)',
+          }}
+        >
+          {list.map((name, idx) => (
+            <div
+              key={name + idx}
+              onMouseDown={(e) => e.preventDefault()} // keep input from blurring
+              onClick={() => commit(name)}
+              style={{
+                padding: '10px 12px',
+                background: idx === active ? '#eef5ff' : '#fff',
+                cursor: 'pointer',
+              }}
+            >
+              {name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PurchaseDetailsTable({ property_id }: { property_id: number }) {
   const [data, setData] = useState<PurchaseDetails | null>(null);
   const [editKey, setEditKey] = useState<keyof PurchaseDetails | null>(null);
@@ -91,6 +202,18 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
 
   const [propertyCreatedAt, setPropertyCreatedAt] = useState<string | null>(null);
   const creatingRef = useRef(false);
+
+  // 🔹 Preload contact names once for Buyer/Seller autocomplete
+  const [contactNames, setContactNames] = useState<string[]>([]);
+  useEffect(() => {
+    fetch('/api/contacts')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((arr: any[]) => {
+        const names = Array.isArray(arr) ? arr.map(c => String(c?.name || '')).filter(Boolean) : [];
+        setContactNames(Array.from(new Set(names)));
+      })
+      .catch(() => void 0);
+  }, []);
 
   // Load property.created_at for seeding closing_date
   useEffect(() => {
@@ -223,12 +346,24 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
 
   return (
     <div style={{ margin: '56px 0 38px 0' }}>
-      <Title
-        order={3}
-        style={{ marginBottom: 12, fontWeight: 800, color: '#4d4637', letterSpacing: 1 }}
+      {/* PURCHASE DETAILS LABEL BOX */}
+      <div
+        style={{
+          width: TABLE_WIDTH,
+          boxSizing: 'border-box',
+          margin: '0 auto 0',
+          padding: '12px 16px',
+          background: '#b6b6b6ff',           // soft yellow
+          border: '4px solid #000',        // thick border
+          borderBottom: 'none',            // attach to table
+          textAlign: 'center',
+          fontWeight: 900,
+          fontSize: 40,
+          letterSpacing: 1,
+        }}
       >
         PURCHASE DETAILS
-      </Title>
+      </div>
 
       {/* Error banner (like RentRollTable) */}
       {saveError && (
@@ -258,10 +393,10 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
           style={{
             fontSize: BASE_FONT_SIZE,
             borderCollapse: 'collapse',
-            border: '2px solid #222',
-            boxShadow: 'inset 0 0 10px rgba(0,0,0,0.06)',
+            border: '4px solid #000',       // thick black border, aligned with label
+            boxShadow: '0 12px 28px rgba(0,0,0,0.3)', // stronger drop shadow
             background: '#fff',
-            width: '100%',
+            width: TABLE_WIDTH,
             textAlign: 'center',
             tableLayout: 'fixed',
           }}
@@ -274,8 +409,8 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                 <th
                   key={col.key}
                   style={{
-                    background: '#ece8d4',
-                    color: '#242211',
+                    background: '#000',
+                    color: '#fff',
                     fontWeight: 700,
                     padding: '13px',
                     border: '1px solid #222',
@@ -285,9 +420,6 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                     width: MAIN_COL_WIDTH,
                     minWidth: MAIN_COL_WIDTH,
                     maxWidth: MAIN_COL_WIDTH,
-                    whiteSpace: 'normal',
-                    overflowWrap: 'anywhere',
-                    wordBreak: 'break-word',
                   }}
                 >
                   {col.label}
@@ -331,59 +463,74 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                     </td>
                   );
                 }
-// Financing Type: dropdown
-if (col.key === 'financing_type') {
-  return (
-    <td key={col.key} style={baseTdStyle}>
-      <select
-        value={editValue ?? ''}
-        style={{ ...inputCellStyle, textAlign: 'center' }}
-        autoFocus
-        disabled={saving}
-        onChange={(e) => setEditValue(e.target.value)}
-        onBlur={() => saveEdit(col.key)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') saveEdit(col.key);
-          if (e.key === 'Escape') setEditKey(null);
-        }}
-      >
-        <option value="">—</option>
-        <option value="Cash">Cash</option>
-        <option value="Loan">Loan</option>
-        <option value="Seller Financing">Seller Financing</option>
-        <option value="Private Money">Private Money</option>
-        <option value="Hard Money">Hard Money</option>
-      </select>
-    </td>
-  );
-}
 
-// Acquisition Type: dropdown
-if (col.key === 'acquisition_type') {
-  return (
-    <td key={col.key} style={baseTdStyle}>
-      <select
-        value={editValue ?? ''}
-        style={{ ...inputCellStyle, textAlign: 'center' }}
-        autoFocus
-        disabled={saving}
-        onChange={(e) => setEditValue(e.target.value)}
-        onBlur={() => saveEdit(col.key)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') saveEdit(col.key);
-          if (e.key === 'Escape') setEditKey(null);
-        }}
-      >
-        <option value="">—</option>
-        <option value="1031 Exchange">1031 Exchange</option>
-        <option value="Standard Purchase">Standard Purchase</option>
-        <option value="Foreclosure / REO">Foreclosure / REO</option>
-        <option value="Auction">Auction</option>
-        <option value="Inheritance / Gift">Inheritance / Gift</option>
-      </select>
-    </td>
-  );
-}
+                // Financing Type: dropdown
+                if (col.key === 'financing_type') {
+                  return (
+                    <td key={col.key} style={baseTdStyle}>
+                      <select
+                        value={editValue ?? ''}
+                        style={{ ...inputCellStyle, textAlign: 'center' }}
+                        autoFocus
+                        disabled={saving}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => saveEdit(col.key)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEdit(col.key);
+                          if (e.key === 'Escape') setEditKey(null);
+                        }}
+                      >
+                        <option value="">—</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Loan">Loan</option>
+                        <option value="Seller Financing">Seller Financing</option>
+                        <option value="Private Money">Private Money</option>
+                        <option value="Hard Money">Hard Money</option>
+                      </select>
+                    </td>
+                  );
+                }
+
+                // Acquisition Type: dropdown
+                if (col.key === 'acquisition_type') {
+                  return (
+                    <td key={col.key} style={baseTdStyle}>
+                      <select
+                        value={editValue ?? ''}
+                        style={{ ...inputCellStyle, textAlign: 'center' }}
+                        autoFocus
+                        disabled={saving}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => saveEdit(col.key)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEdit(col.key);
+                          if (e.key === 'Escape') setEditKey(null);
+                        }}
+                      >
+                        <option value="">—</option>
+                        <option value="1031 Exchange">1031 Exchange</option>
+                        <option value="Standard Purchase">Standard Purchase</option>
+                        <option value="Foreclosure / REO">Foreclosure / REO</option>
+                        <option value="Auction">Auction</option>
+                        <option value="Inheritance / Gift">Inheritance / Gift</option>
+                      </select>
+                    </td>
+                  );
+                }
+
+                // Buyer & Seller: minimal autocomplete (local; commit on Enter/click)
+                if (col.key === 'buyer' || col.key === 'seller') {
+                  return (
+                    <td key={col.key} style={baseTdStyle}>
+                      <NameAutocompleteSimple
+                        initialValue={editValue ?? ''}
+                        suggestions={contactNames}
+                        placeholder={col.key === 'buyer' ? 'Buyer' : 'Seller'}
+                        onCommit={(finalText) => saveEdit(col.key, finalText)}
+                      />
+                    </td>
+                  );
+                }
 
                 // Editing UI for main fields (borderless inputs)
                 return (
@@ -459,11 +606,15 @@ if (col.key === 'acquisition_type') {
         </Table>
       </div>
 
-      {data?.financing_type === 'Loan' && (
-        <div style={{ marginTop: 26, width: '100%' }}>
-          <LoanDetailsTable property_id={property_id} />
-        </div>
-      )}
+      {(() => {
+        const ft = (data?.financing_type ?? '').toLowerCase();
+        const showLoanDetails = ft.includes('loan') || ft.includes('seller financing');
+        return showLoanDetails ? (
+          <div style={{ marginTop: 26, width: '100%' }}>
+            <LoanDetailsTable property_id={property_id} />
+          </div>
+        ) : null;
+      })()}
     </div>
   );
 }

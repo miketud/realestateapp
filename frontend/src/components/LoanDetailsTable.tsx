@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Table, Title } from '@mantine/core';
 
 const COL_WIDTH = 175;
@@ -29,8 +29,8 @@ const cellStyle: React.CSSProperties = {
 // Header cell used inside <tbody> (to match PropertyView look)
 const headerCellStyle = (hasLabel: boolean): React.CSSProperties => ({
   ...cellStyle,
-  background: hasLabel ? '#ece8d4' : '#000',
-  color: hasLabel ? '#242211' : '#000',
+  background: '#000',
+  color: hasLabel ? '#fff' : '#000', // labeled headers = white text; filler stays black-on-black
   fontWeight: 700,
   textTransform: 'uppercase',
 });
@@ -46,7 +46,7 @@ const blackCell: React.CSSProperties = {
 // Disabled (until Loan Number exists)
 const disabledCellStyle: React.CSSProperties = {
   ...cellStyle,
-  background: '#c4c4c4',
+  background: '#383838ff',
   color: '#5e5e5e',
   cursor: 'not-allowed',
   pointerEvents: 'none',
@@ -113,12 +113,135 @@ const COLUMNS: Column[] = [
 
 const FIELDS_WO_NOTES: Column[] = COLUMNS.filter(c => c.key !== 'notes');
 
+/* ──────────────────────────────────────────────────────────
+   Minimal local-state autocomplete for Lender (fast, no lag)
+   - Filters preloaded names while typing
+   - Local text state while editing (prevents parent re-render lag)
+   - Commit on Enter or clicking a suggestion; free-form allowed
+   - No blur commit (mirrors Dashboard behavior)
+────────────────────────────────────────────────────────── */
+function LenderAutocomplete({
+  initialValue,
+  suggestions,
+  placeholder = 'Lender',
+  onCommit,
+}: {
+  initialValue: string;
+  suggestions: string[];
+  placeholder?: string;
+  onCommit: (finalText: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [text, setText] = useState(initialValue || '');
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const list = useMemo(() => {
+    const q = text.trim().toLowerCase();
+    if (!q) return [];
+    return Array.from(new Set(suggestions))
+      .filter(n => n.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [text, suggestions]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const commit = (val: string) => {
+    onCommit(val);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', height: '100%' }}>
+      <input
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setText(e.target.value);
+          setOpen(true);
+          setActive(0);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (list.length) commit(list[active]);
+            else commit(text);
+          } else if (e.key === 'ArrowDown' && list.length) {
+            e.preventDefault();
+            setActive(i => Math.min(i + 1, list.length - 1));
+          } else if (e.key === 'ArrowUp' && list.length) {
+            e.preventDefault();
+            setActive(i => Math.max(i - 1, 0));
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+        style={inputCellStyle}
+      />
+      {open && list.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            maxHeight: 220,
+            overflowY: 'auto',
+            border: '2px solid #111',
+            background: '#fff',
+            zIndex: 70,
+            boxShadow: '0 8px 18px rgba(0,0,0,0.2)',
+          }}
+        >
+          {list.map((name, idx) => (
+            <div
+              key={name + idx}
+              onMouseDown={(e) => e.preventDefault()} // keep input from blurring
+              onClick={() => commit(name)}
+              style={{
+                padding: '10px 12px',
+                background: idx === active ? '#eef5ff' : '#fff',
+                cursor: 'pointer',
+              }}
+            >
+              {name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LoanDetailsTable({ property_id }: { property_id: number }) {
   const [data, setData] = useState<LoanDetails | null>(null);
   const [editingKey, setEditingKey] = useState<keyof LoanDetails | null>(null);
   const [editValue, setEditValue] = useState<any>('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // 🔹 Preload contact names once for lender autocomplete
+  const [contactNames, setContactNames] = useState<string[]>([]);
+  useEffect(() => {
+    fetch('/api/contacts')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((arr: any[]) => {
+        const names = Array.isArray(arr)
+          ? arr.map(c => String(c?.name || '')).filter(Boolean)
+          : [];
+        setContactNames(Array.from(new Set(names)));
+      })
+      .catch(() => void 0);
+  }, []);
 
   async function getPurchaseIdByPropertyId(pid: number): Promise<number | null> {
     const res = await fetch(`/api/purchase_details?property_id=${pid}`);
@@ -184,7 +307,8 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
     const col = COLUMNS.find((c) => c.key === key);
 
     if (col?.type === 'number') value = value === '' ? null : Number(value);
-    if (col?.type === 'boolean') value = value === '' || value === undefined ? null : (value === true || value === 'true' || value === 'Yes');
+    if (col?.type === 'boolean') value =
+      value === '' || value === undefined ? null : (value === true || value === 'true' || value === 'Yes');
     if (col?.type === 'date') value = value === '' ? null : String(value).slice(0, 10);
 
     try {
@@ -285,20 +409,26 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
 
   return (
     <div style={{ marginTop: 16, width: TABLE_WIDTH }}>
-      <Title
-        order={3}
+      {/* LOAN DETAILS LABEL BOX */}
+      <div
         style={{
-          marginBottom: 12,
-          fontWeight: 800,
-          color: '#4d4637',
+          width: TABLE_WIDTH,
+          boxSizing: 'border-box',
+          margin: '0 auto 0',
+          padding: '12px 16px',
+          background: '#b6b6b6ff',           // soft yellow
+          border: '4px solid #000',        // thick black border
+          borderBottom: 'none',            // attach to table
+          textAlign: 'center',
+          fontWeight: 900,
+          fontSize: 40,
           letterSpacing: 1,
-          textTransform: 'uppercase',
         }}
       >
         LOAN DETAILS
-      </Title>
+      </div>
 
-      {/* Error banner (like RentRollTable) */}
+      {/* Error banner */}
       {saveError && (
         <div
           style={{
@@ -324,10 +454,10 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
         style={{
           fontSize: FONT_SIZE,
           borderCollapse: 'collapse',
-          border: '2px solid #222',
-          boxShadow: 'inset 0 0 10px rgba(0,0,0,0.06)',
+          border: '4px solid #000',          // match label border
+          boxShadow: '0 12px 28px rgba(0,0,0,0.3)', // stronger drop shadow
           background: '#fff',
-          width: '100%',
+          width: TABLE_WIDTH,
           textAlign: 'center',
           tableLayout: 'fixed',
         }}
@@ -417,61 +547,75 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                   }
 
                   // Loan Status: dropdown
-if (col.key === 'loan_status') {
-  return (
-    <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
-      <select
-        value={editValue ?? ''}
-        style={{
-          ...inputCellStyle,
-          textAlign: 'center',
-        }}
-        autoFocus
-        disabled={saving}
-        onChange={(e) => setEditValue(e.target.value)}
-        onBlur={() => handleSave(col.key)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') handleSave(col.key);
-          if (e.key === 'Escape') setEditingKey(null);
-        }}
-      >
-        <option value="">—</option>
-        <option value="Active">Active</option>
-        <option value="Paid">Paid</option>
-        <option value="Pending">Pending</option>
-      </select>
-    </td>
-  );
-}
+                  if (col.key === 'loan_status') {
+                    return (
+                      <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
+                        <select
+                          value={editValue ?? ''}
+                          style={{
+                            ...inputCellStyle,
+                            textAlign: 'center',
+                          }}
+                          autoFocus
+                          disabled={saving}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => handleSave(col.key)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSave(col.key);
+                            if (e.key === 'Escape') setEditingKey(null);
+                          }}
+                        >
+                          <option value="">—</option>
+                          <option value="Active">Active</option>
+                          <option value="Paid">Paid</option>
+                          <option value="Pending">Pending</option>
+                        </select>
+                      </td>
+                    );
+                  }
 
-// Loan Type: dropdown, same style as booleans
-if (col.key === 'loan_type') {
-  return (
-    <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
-      <select
-        value={editValue ?? ''}
-        style={{
-          ...inputCellStyle,
-          textAlign: 'center',
-        }}
-        autoFocus
-        disabled={saving}
-        onChange={(e) => setEditValue(e.target.value)}
-        onBlur={() => handleSave(col.key)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') handleSave(col.key);
-          if (e.key === 'Escape') setEditingKey(null);
-        }}
-      >
-        <option value="">—</option>
-        <option value="Conventional">Conventional</option>
-        <option value="Hard Money">Hard Money</option>
-        <option value="Adjustable Rate Mortgage">Adjustable Rate Mortgage</option>
-        <option value="Fixed Rate Mortgage">Fixed Rate Mortgage</option>
-      </select>
-    </td>
-  );
-}
+                  // Loan Type: dropdown
+                  if (col.key === 'loan_type') {
+                    return (
+                      <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
+                        <select
+                          value={editValue ?? ''}
+                          style={{
+                            ...inputCellStyle,
+                            textAlign: 'center',
+                          }}
+                          autoFocus
+                          disabled={saving}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => handleSave(col.key)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSave(col.key);
+                            if (e.key === 'Escape') setEditingKey(null);
+                          }}
+                        >
+                          <option value="">—</option>
+                          <option value="Conventional">Conventional</option>
+                          <option value="Hard Money">Hard Money</option>
+                          <option value="Adjustable Rate Mortgage">Adjustable Rate Mortgage</option>
+                          <option value="Fixed Rate Mortgage">Fixed Rate Mortgage</option>
+                        </select>
+                      </td>
+                    );
+                  }
+
+                  // Lender: minimal autocomplete (local; commit on Enter/click only)
+                  if (col.key === 'lender') {
+                    return (
+                      <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
+                        <LenderAutocomplete
+                          initialValue={editValue ?? ''}
+                          suggestions={contactNames}
+                          placeholder="Lender"
+                          onCommit={(finalText) => handleSave(col.key, finalText)}
+                        />
+                      </td>
+                    );
+                  }
 
                   if (col.type === 'boolean') {
                     return (
@@ -536,7 +680,17 @@ if (col.key === 'loan_type') {
 
           {/* Notes row */}
           <tr>
-            <td style={headerCellStyle(true)}>Notes</td>
+            <td
+              style={{
+                ...cellStyle,
+                background: '#ece8d4',
+                color: '#242211',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+              }}
+            >
+              Notes
+            </td>
             <td
               colSpan={MAX_COLS - 1}
               style={{

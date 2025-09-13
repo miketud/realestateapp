@@ -1,47 +1,57 @@
-import Fastify, { FastifyRequest, FastifyReply } from 'fastify';
+import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const app = Fastify();
+const app = Fastify({ logger: false });
 
 async function start() {
   await app.register(cors, {
     origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
   });
 
-  // ========== PROPERTIES ==========
+  // ---------------- Health ----------------
+  app.get('/health', async (_req, reply) => reply.send({ ok: true }));
+
+  // =====================================================
+  // PROPERTIES
+  // =====================================================
   app.get('/api/properties', async (_req, reply) => {
-    const properties = await prisma.property.findMany();
-    reply.send(properties);
+    try {
+      const rows = await prisma.property.findMany();
+      reply.send(rows);
+    } catch {
+      reply.status(500).send({ error: 'Failed to fetch properties' });
+    }
   });
 
   app.get('/api/properties/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const property = await prisma.property.findUnique({ where: { property_id: Number(id) } });
-    if (!property) return reply.status(404).send({ error: 'Not found' });
-    reply.send(property);
+    try {
+      const row = await prisma.property.findUnique({ where: { property_id: Number(id) } });
+      if (!row) return reply.status(404).send({ error: 'Not found' });
+      reply.send(row);
+    } catch {
+      reply.status(500).send({ error: 'Failed to fetch property' });
+    }
   });
 
   app.post('/api/properties', async (req, reply) => {
     const data = req.body as any;
-    const required = ['property_name', 'address', 'owner'];
-    for (const field of required) {
-      if (!data[field]) return reply.status(400).send({ error: `${field} is required` });
+    try {
+      const created = await prisma.property.create({ data });
+      reply.status(201).send(created);
+    } catch {
+      reply.status(400).send({ error: 'Create failed' });
     }
-    const created = await prisma.property.create({ data });
-    reply.status(201).send(created);
   });
 
   app.put('/api/properties/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const data = req.body as any;
     try {
-      const updated = await prisma.property.update({
-        where: { property_id: Number(id) },
-        data,
-      });
+      const updated = await prisma.property.update({ where: { property_id: Number(id) }, data });
       reply.send(updated);
     } catch {
       reply.status(404).send({ error: 'Property not found or update failed' });
@@ -51,15 +61,8 @@ async function start() {
   app.patch('/api/properties/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const updates = req.body as any;
-    if (!updates || typeof updates !== 'object') {
-      return reply.status(400).send({ error: 'No update data provided' });
-    }
-
     try {
-      const updated = await prisma.property.update({
-        where: { property_id: Number(id) },
-        data: updates,
-      });
+      const updated = await prisma.property.update({ where: { property_id: Number(id) }, data: updates });
       reply.send(updated);
     } catch {
       reply.status(404).send({ error: 'Property not found or update failed' });
@@ -76,252 +79,248 @@ async function start() {
     }
   });
 
-  // ========== PURCHASE DETAILS ==========
+  // =====================================================
+  // PURCHASE DETAILS
+  // =====================================================
   app.get('/api/purchase_details', async (req, reply) => {
     const { property_id } = req.query as { property_id?: string };
-    if (!property_id) return reply.status(400).send({ error: 'property_id is required' });
-
+    if (!property_id) return reply.status(400).send({ error: 'property_id required' });
     try {
-      const purchase = await prisma.purchaseDetails.findFirst({
-        where: { property_id: Number(property_id) },
-      });
-      if (!purchase) return reply.status(404).send({ error: 'Purchase details not found' });
-      reply.send(purchase);
-    } catch (error) {
-      console.error(error);
-      reply.status(500).send({ error: 'Server error fetching purchase details' });
+      const row = await prisma.purchaseDetails.findUnique({ where: { property_id: Number(property_id) } });
+      if (!row) return reply.send({ error: 'not_found' });
+      reply.send(row);
+    } catch {
+      reply.status(500).send({ error: 'Failed to fetch purchase details' });
     }
   });
 
   app.post('/api/purchase_details', async (req, reply) => {
-    const {
-      property_id, purchase_price, financing_type, acquisition_type,
-      buyer, seller, closing_date, closing_costs, earnest_money, notes
-    } = req.body as any;
-
-    if (
-      property_id === undefined ||
-      financing_type === undefined ||
-      acquisition_type === undefined ||
-      closing_date === undefined ||
-      purchase_price === undefined
-    ) {
-      return reply.status(400).send({ error: 'Missing required fields' });
-    }
-
-    console.log('[POST /api/purchase_details] Payload:', {
-      property_id, purchase_price, financing_type, acquisition_type, buyer, seller, closing_date, closing_costs, earnest_money, notes
-    });
-
+    const b = req.body as any;
     try {
-      const newRecord = await prisma.purchaseDetails.create({
+      const created = await prisma.purchaseDetails.create({
         data: {
-          property_id: Number(property_id),
-          purchase_price: Number(purchase_price),
-          financing_type,
-          acquisition_type,
-          buyer,
-          seller,
-          closing_date: new Date(closing_date),
-          closing_costs: Number(closing_costs),
-          earnest_money: earnest_money ? Number(earnest_money) : undefined,
-          notes,
-        }
+          property_id: Number(b.property_id),
+          purchase_price: b.purchase_price ?? 0,
+          down_payment: b.down_payment ?? null,
+          financing_type: b.financing_type ?? '',
+          acquisition_type: b.acquisition_type ?? '',
+          buyer: b.buyer ?? '',
+          seller: b.seller ?? '',
+          closing_date: b.closing_date ? new Date(b.closing_date) : new Date(),
+          closing_costs: b.closing_costs ?? 0,
+          earnest_money: b.earnest_money ?? null,
+          notes: b.notes ?? null,
+        },
       });
-      reply.status(201).send(newRecord);
-    } catch (error) {
-      console.error(error);
-      reply.status(500).send({ error: 'Insert failed', details: error });
+      reply.status(201).send(created);
+    } catch (e: any) {
+      reply.status(400).send({ error: e.message });
     }
   });
 
-  app.patch('/api/purchase_details/:purchase_id', async (req, reply) => {
-    const { purchase_id } = req.params as { purchase_id: string };
-    const updates = req.body as any;
-
-    if (!purchase_id || !updates) {
-      return reply.status(400).send({ error: 'purchase_id and update body required' });
+  app.patch('/api/purchase_details/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as any;
+    if (b.closing_date !== undefined) {
+      b.closing_date = b.closing_date ? new Date(b.closing_date) : null;
     }
-
-    // Fix: Convert closing_date to JS Date if present and is a string
-    if (updates.closing_date && typeof updates.closing_date === 'string') {
-      updates.closing_date = new Date(updates.closing_date);
-    }
-
     try {
       const updated = await prisma.purchaseDetails.update({
-        where: { purchase_id: Number(purchase_id) },
-        data: updates,
+        where: { purchase_id: Number(id) },
+        data: b,
       });
       reply.send(updated);
-    } catch (error) {
-      console.error(error);
-      reply.status(500).send({ error: 'Failed to update purchase details', details: error });
+    } catch (e: any) {
+      reply.status(400).send({ error: e.message });
     }
   });
 
-  // ========== LOAN DETAILS ==========
-
-  // GET loan details for a given property
+  // =====================================================
+  // LOAN DETAILS
+  // =====================================================
   app.get('/api/loan_details', async (req, reply) => {
     const { property_id } = req.query as { property_id?: string };
-    if (!property_id) return reply.status(400).send({ error: 'property_id is required' });
-
+    if (!property_id) return reply.status(400).send({ error: 'property_id required' });
     try {
-      const loan = await prisma.loanDetails.findFirst({
+      const row = await prisma.loanDetails.findFirst({
         where: { property_id: Number(property_id) },
+        orderBy: { loan_start: 'asc' },
       });
-      if (!loan) return reply.status(404).send({ error: 'Loan details not found' });
-      reply.send(loan);
-    } catch (error) {
-      console.error('[GET /api/loan_details] Error:', error);
+      if (!row) return reply.send({ error: 'not_found' });
+      reply.send(row);
+    } catch {
       reply.status(500).send({ error: 'Failed to fetch loan details' });
     }
   });
 
-  // POST: Create a new loan record — only if one does not exist for the property
   app.post('/api/loan_details', async (req, reply) => {
-    const {
-      loan_id,
-      property_id,
-      purchase_id,
-      loan_amount,
-      lender,
-      interest_rate,
-      loan_term,
-      loan_mortgage,
-      loan_start,
-      loan_end,
-      loan_type,
-      balloon_payment,
-      prepayment_penalty,
-      refinanced,
-      loan_status,
-      notes,
-    } = req.body as any;
-
-    if (!loan_id || !property_id || !purchase_id) {
+    const b = req.body as any;
+    if (!b?.loan_id || !b?.property_id || !b?.purchase_id) {
       return reply.status(400).send({ error: 'loan_id, property_id, and purchase_id are required' });
     }
-
     try {
-      // Prevent duplicate loan creation for this property
-      const existing = await prisma.loanDetails.findFirst({
-        where: { property_id: Number(property_id) },
-      });
-      if (existing) return reply.status(409).send({ error: 'Loan already exists for this property' });
-
       const created = await prisma.loanDetails.create({
         data: {
-          loan_id: String(loan_id),
-          property_id: Number(property_id),
-          purchase_id: Number(purchase_id),
-          loan_amount: Number(loan_amount) || 0,
-          lender: lender ?? '',
-          interest_rate: Number(interest_rate) || 0,
-          loan_term: Number(loan_term) || 0,
-          loan_mortgage: Number(loan_mortgage) || 0,
-          loan_start: loan_start ? new Date(loan_start) : null,
-          loan_end: loan_end ? new Date(loan_end) : null,
-          loan_type: loan_type ?? '',
-          balloon_payment: !!balloon_payment,
-          prepayment_penalty: !!prepayment_penalty,
-          refinanced: !!refinanced,
-          loan_status: loan_status ?? '',
-          notes: notes ?? null,
+          loan_id: String(b.loan_id),
+          property_id: Number(b.property_id),
+          purchase_id: Number(b.purchase_id),
+          loan_amount: b.loan_amount ?? null,
+          lender: b.lender ?? null,
+          interest_rate: b.interest_rate ?? null,
+          loan_term: b.loan_term ?? null,
+          loan_start: b.loan_start ? new Date(b.loan_start) : null,
+          loan_end: b.loan_end ? new Date(b.loan_end) : null,
+          amortization_period: b.amortization_period ?? null,
+          monthly_payment: b.monthly_payment ?? null,
+          loan_type: b.loan_type ?? null,
+          balloon_payment: b.balloon_payment ?? null,
+          prepayment_penalty: b.prepayment_penalty ?? null,
+          refinanced: b.refinanced ?? null,
+          loan_status: b.loan_status ?? null,
+          notes: b.notes ?? null,
         },
       });
-
       reply.status(201).send(created);
-    } catch (err) {
-      console.error('[POST /api/loan_details] Creation failed:', err);
-      reply.status(500).send({ error: 'Failed to create loan record' });
+    } catch (e: any) {
+      reply.status(400).send({ error: e.message });
     }
   });
 
-  // PATCH: Update a loan by loan_id
-  app.patch('/api/loan_details/:loan_id', async (req, reply) => {
-    const { loan_id } = req.params as { loan_id: string };
-    const updates = req.body as Record<string, any>;
-
-    if (!loan_id || !updates) {
-      return reply.status(400).send({ error: 'loan_id and update body required' });
+  app.patch('/api/loan_details/by_property_purchase', async (req, reply) => {
+    const b = req.body as { property_id: number; purchase_id: number } & Record<string, any>;
+    if (!b?.property_id || !b?.purchase_id) {
+      return reply.status(400).send({ error: 'property_id and purchase_id required' });
     }
-
+    ['loan_start', 'loan_end'].forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(b, field)) {
+        b[field] = b[field] ? new Date(b[field]) : null;
+      }
+    });
     try {
       const updated = await prisma.loanDetails.update({
-        where: { loan_id },
-        data: updates,
+        where: { property_id_purchase_id: { property_id: Number(b.property_id), purchase_id: Number(b.purchase_id) } },
+        data: { ...b, property_id: undefined, purchase_id: undefined },
       });
       reply.send(updated);
-    } catch (error) {
-      console.error('[PATCH /api/loan_details/:loan_id] Update failed:', error);
-      reply.status(500).send({ error: 'Failed to update loan details' });
+    } catch (e: any) {
+      reply.status(400).send({ error: e.message });
     }
   });
 
-  // ========== RENT ROLL ==========
-  app.post('/api/rentroll', async (req, reply) => {
-    const { property_id, month, year, rent_amount, date_deposited, notes, check_number } = req.body as any;
-    if (!property_id || !month || !year) {
+  app.patch('/api/loan_details/:loan_id', async (req, reply) => {
+    const { loan_id } = req.params as { loan_id: string };
+    const b = req.body as any;
+    ['loan_start', 'loan_end'].forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(b, field)) {
+        b[field] = b[field] ? new Date(b[field]) : null;
+      }
+    });
+    try {
+      const updated = await prisma.loanDetails.update({
+        where: { loan_id: String(loan_id) },
+        data: b,
+      });
+      reply.send(updated);
+    } catch (e: any) {
+      reply.status(404).send({ error: 'Loan not found or update failed', details: e.message });
+    }
+  });
+
+  // =====================================================
+  // RENT LOG (formerly RentRoll) — Prisma model RentLog maps to table rent_log
+  // =====================================================
+  // Use shared handlers; no app.inject (fixes TS errors).
+  const getRentHandler = async (req: any, reply: any) => {
+    const { property_id, year } = req.query as { property_id?: string; year?: string };
+    if (!property_id) return reply.status(400).send({ error: 'property_id required' });
+    const where: any = { property_id: Number(property_id) };
+    if (year) where.year = Number(year);
+    try {
+      const rows = await prisma.rentLog.findMany({ where, orderBy: [{ year: 'asc' }, { month: 'asc' }] });
+      reply.send(rows);
+    } catch (e: any) {
+      reply.status(500).send({ error: 'Failed to fetch rent log', details: e.message });
+    }
+  };
+
+  const postRentHandler = async (req: any, reply: any) => {
+    const b = req.body as {
+      property_id: number;
+      month: string;
+      year: number | string;
+      rent_amount?: number | null;
+      date_deposited?: string | null;
+      check_number?: number | null;
+      notes?: string | null;
+    };
+    if (!b?.property_id || !b?.month || !b?.year) {
       return reply.status(400).send({ error: 'property_id, month, and year are required' });
     }
 
     try {
-      const entry = await prisma.rentRoll.upsert({
-        where: {
-          property_id_month_year: {
-            property_id: Number(property_id),
-            month: String(month),
-            year: Number(year),
-          }
+      const key = {
+        property_id_month_year: {
+          property_id: Number(b.property_id),
+          month: String(b.month),
+          year: Number(b.year),
         },
-        update: {
-          rent_amount: rent_amount ? Number(rent_amount) : 0,
-          date_deposited: new Date(date_deposited),
-          notes: notes ?? null,
-          check_number: check_number ? Number(check_number) : null,
-        },
-        create: {
-          property_id: Number(property_id),
-          month: String(month),
-          year: Number(year),
-          rent_amount: rent_amount ? Number(rent_amount) : 0,
-          date_deposited: new Date(date_deposited),
-          notes: notes ?? null,
-          check_number: check_number ? Number(check_number) : null,
-        }
+      };
+
+      // coerce to correct types; undefined means "don't change" on update
+      const updateData: any = {
+        rent_amount: b.rent_amount ?? undefined,
+        date_deposited: b.date_deposited === undefined ? undefined : (b.date_deposited ? new Date(b.date_deposited) : null),
+        check_number: b.check_number ?? undefined,
+        notes: b.notes ?? undefined,
+      };
+
+      const createData: any = {
+        property_id: Number(b.property_id),
+        month: String(b.month),
+        year: Number(b.year),
+        rent_amount: b.rent_amount ?? 0,
+        date_deposited: b.date_deposited ? new Date(b.date_deposited) : new Date(),
+        check_number: b.check_number ?? null,
+        notes: b.notes ?? null,
+      };
+
+      const row = await prisma.rentLog.upsert({ where: key, update: updateData, create: createData });
+      reply.send(row);
+    } catch (e: any) {
+      reply.status(400).send({ error: e.message });
+    }
+  };
+
+  // Legacy + new routes
+  app.get('/api/rentroll', getRentHandler);
+  app.post('/api/rentroll', postRentHandler);
+  app.get('/api/rentlog', getRentHandler);
+  app.post('/api/rentlog', postRentHandler);
+
+  // =====================================================
+  // TRANSACTIONS
+  // =====================================================
+  app.get('/api/transactions', async (req, reply) => {
+    const { property_id } = req.query as { property_id?: string };
+    if (!property_id) return reply.status(400).send({ error: 'property_id required' });
+    try {
+      const rows = await prisma.transaction.findMany({
+        where: { property_id: Number(property_id) },
+        orderBy: { transaction_date: 'desc' },
       });
-      reply.send(entry);
-    } catch (error) {
-      reply.status(500).send({ error: 'Failed to upsert rent roll entry', details: error });
+      reply.send(rows);
+    } catch {
+      reply.status(500).send({ error: 'Failed to fetch transactions' });
     }
   });
 
-  app.get('/api/rentroll', async (req, reply) => {
-    const { property_id, year } = req.query as { property_id?: string, year?: string };
-    if (!property_id || !year) {
-      return reply.status(400).send({ error: 'property_id and year are required' });
-    }
-
-    const entries = await prisma.rentRoll.findMany({
-      where: {
-        property_id: Number(property_id),
-        year: Number(year),
-      }
-    });
-    reply.send(entries);
-  });
-
-  // ========== TRANSACTIONS ==========
   app.post('/api/transactions', async (req, reply) => {
     const { property_id, amount, date, transaction_type, notes } = req.body as any;
-    if (!property_id || !amount || !date) {
+    if (!property_id || amount == null || !date) {
       return reply.status(400).send({ error: 'property_id, amount, and date are required' });
     }
-
     try {
-      const transaction = await prisma.transaction.create({
+      const row = await prisma.transaction.create({
         data: {
           property_id: Number(property_id),
           transaction_amount: Number(amount),
@@ -330,55 +329,55 @@ async function start() {
           notes: notes ?? null,
         },
       });
-      reply.status(201).send(transaction);
-    } catch (error) {
-      reply.status(500).send({ error: 'Failed to create transaction', details: error });
+      reply.status(201).send(row);
+    } catch (e: any) {
+      reply.status(400).send({ error: e.message });
     }
   });
 
-  app.get('/api/transactions', async (req, reply) => {
-    const { property_id } = req.query as { property_id?: string };
-    if (!property_id) return reply.status(400).send({ error: 'property_id is required' });
+app.patch('/api/transactions/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const body = req.body as any;
 
-    try {
-      const transactions = await prisma.transaction.findMany({
-        where: { property_id: Number(property_id) },
-        orderBy: { transaction_date: 'desc' },
-      });
-      reply.send(transactions);
-    } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch transactions', details: error });
+  // Coerce incoming values to what Prisma expects
+  const updates: any = {};
+
+  if ('transaction_amount' in body) {
+    const n = body.transaction_amount === null || body.transaction_amount === ''
+      ? null
+      : Number(body.transaction_amount);
+    if (n !== null && !Number.isFinite(n)) {
+      return reply.status(400).send({ error: 'transaction_amount must be a number' });
     }
-  });
+    updates.transaction_amount = n;
+  }
 
-  app.patch('/api/transactions/:id', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const updates = req.body as any;
-
-    try {
-      const updated = await prisma.transaction.update({
-        where: { transaction_id: Number(id) },
-        data: updates,
-      });
-      reply.send(updated);
-    } catch {
-      reply.status(404).send({ error: 'Transaction not found or update failed' });
+  if ('transaction_date' in body) {
+    const raw = body.transaction_date;
+    const d = (raw === null || raw === '') ? null : new Date(raw);
+    if (d !== null && Number.isNaN(d.valueOf())) {
+      return reply.status(400).send({ error: 'transaction_date is invalid' });
     }
-  });
+    updates.transaction_date = d;
+  }
 
-  app.delete('/api/transactions/:id', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    try {
-      await prisma.transaction.delete({
-        where: { transaction_id: Number(id) },
-      });
-      reply.status(204).send();
-    } catch {
-      reply.status(404).send({ error: 'Transaction not found or delete failed' });
-    }
-  });
+  if ('transaction_type' in body) updates.transaction_type = body.transaction_type ?? null;
+  if ('notes' in body) updates.notes = body.notes ?? null;
 
-  await app.listen({ port: 3000 });
+  try {
+    const row = await prisma.transaction.update({
+      where: { transaction_id: Number(id) },
+      data: updates,
+    });
+    reply.send(row);
+  } catch (e) {
+    console.error('PATCH /api/transactions/:id failed', e);
+    reply.status(404).send({ error: 'Transaction not found or update failed' });
+  }
+});
+
+  // ---- start server last ----
+  await app.listen({ port: 3000, host: '0.0.0.0' });
   console.log('Server running on http://localhost:3000');
 }
 

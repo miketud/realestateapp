@@ -1,18 +1,22 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import {
-  Box, Image, Title, Divider, Table, Loader, Center, Button,
+  Box, Title, Table, Loader, Center, Button,
 } from '@mantine/core';
-import logo from '../assets/propertylogo.svg';
 import { getProperty, updatePropertyField } from '../api/properties';
 import RentRollTable from './RentRollTable';
 import TransactionLog, { type TransactionRow } from './TransactionLog';
 import PurchaseDetailsTable from './PurchaseDetailsTable';
+import PaymentTable from './PaymentTable';
 
 // --- Grid / sizing ---
 const COL_WIDTH = 175;
 const FONT_SIZE = 16;
 const MAX_COLS = 9;
 const TABLE_WIDTH = COL_WIDTH * MAX_COLS;
+const LABEL_BORDER = 4;
+
+// Standard app width (match grid so header aligns perfectly)
+const APP_WIDTH = TABLE_WIDTH; // 1575px
 
 // --- API base ---
 const API_BASE =
@@ -52,8 +56,8 @@ const cellBase: React.CSSProperties = {
 };
 const headerBase: React.CSSProperties = {
   ...cellBase,
-  background: '#ece8d4',
-  color: '#242211',
+  background: '#000000ff',
+  color: '#ffffffff',
   fontWeight: 700,
   textTransform: 'uppercase',
 };
@@ -68,6 +72,14 @@ const headerSingleUnit: React.CSSProperties = {
   width: COL_WIDTH,
   minWidth: COL_WIDTH,
   maxWidth: COL_WIDTH,
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  Vacant: '#c72727ff',
+  Pending: '#ff9544ff',
+  Leased: '#3e9c57ff',
+  Subleased: '#3e9c57ff',
+  Financed: '#3e9c57ff',
 };
 
 type Property = {
@@ -401,6 +413,117 @@ function ContactSearchPins({ property_id, width }: { property_id: number; width:
   );
 }
 
+/* === OwnerAutocompleteSimple (local text; commit on Enter/click only) === */
+function OwnerAutocompleteSimple({
+  initialValue,
+  suggestions,
+  onCommit,
+  placeholder = 'Owner',
+}: {
+  initialValue: string;
+  suggestions: string[];
+  onCommit: (text: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [text, setText] = useState(initialValue || '');
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const list = useMemo(() => {
+    const q = text.trim().toLowerCase();
+    if (!q) return [];
+    return Array.from(new Set(suggestions))
+      .filter(n => n.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [text, suggestions]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const commit = (val: string) => {
+    onCommit(val);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', height: '100%' }}>
+      <input
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setText(e.target.value);
+          setOpen(true);
+          setActive(0);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (list.length) commit(list[active]);
+            else commit(text);
+          } else if (e.key === 'ArrowDown' && list.length) {
+            e.preventDefault();
+            setActive(i => Math.min(i + 1, list.length - 1));
+          } else if (e.key === 'ArrowUp' && list.length) {
+            e.preventDefault();
+            setActive(i => Math.max(i - 1, 0));
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+        // IMPORTANT: no onBlur commit here
+        style={inputCellStyle}
+      />
+      {open && list.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            maxHeight: 220,
+            overflowY: 'auto',
+            border: '2px solid #111',
+            background: '#fff',
+            zIndex: 70,
+            boxShadow: '0 8px 18px rgba(0,0,0,0.2)',
+          }}
+        >
+          {list.map((name, idx) => (
+            <button
+              key={name + idx}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => commit(name)}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '10px 12px',
+                border: 'none',
+                borderBottom: '1px solid #eee',
+                background: idx === active ? '#f5f7ff' : '#fff',
+                cursor: 'pointer',
+                fontSize: 16,
+              }}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 /* ============================================
    Property View
    ============================================ */
@@ -416,9 +539,24 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
   const [editValue, setEditValue] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showSaveError, setShowSaveError] = useState(false);
+  const saveErrorTimers = useRef<number[]>([]);
 
   // separate saving flag for the toggle
   const [togglingIncome, setTogglingIncome] = useState(false);
+
+  const [contactNames, setContactNames] = useState<string[]>([]);
+  useEffect(() => {
+    fetch('/api/contacts')
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.text())))
+      .then((data: any[]) => {
+        const names = Array.isArray(data) ? data.map((c: any) => String(c.name || '')).filter(Boolean) : [];
+        const uniq: string[] = [];
+        for (const n of names) if (!uniq.includes(n)) uniq.push(n);
+        setContactNames(uniq);
+      })
+      .catch(() => void 0);
+  }, []);
 
   // Load transactions
   useEffect(() => {
@@ -432,7 +570,7 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
       .catch(() => setTransactions([]));
   }, [property_id]);
 
-  // Load property (image upload removed)
+  // Load property
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -473,6 +611,36 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
     }
   }
 
+  useEffect(() => {
+    // clear any previous timers whenever the message changes or unmounts
+    saveErrorTimers.current.forEach(t => window.clearTimeout(t));
+    saveErrorTimers.current = [];
+
+    if (saveError) {
+      setShowSaveError(true); // fade in immediately
+      // after 5s, start fade out
+      const t1 = window.setTimeout(() => setShowSaveError(false), 5000);
+      // after fade-out (300ms), remove message
+      const t2 = window.setTimeout(() => setSaveError(null), 5300);
+      saveErrorTimers.current.push(t1, t2);
+    }
+
+    return () => {
+      saveErrorTimers.current.forEach(t => window.clearTimeout(t));
+      saveErrorTimers.current = [];
+    };
+  }, [saveError]);
+
+  const dismissSaveError = () => {
+    // stop any running timers
+    saveErrorTimers.current.forEach(t => window.clearTimeout(t));
+    saveErrorTimers.current = [];
+    // fade out, then clear
+    setShowSaveError(false);
+    const t = window.setTimeout(() => setSaveError(null), 300);
+    saveErrorTimers.current.push(t);
+  };
+
   async function handleSave(key: keyof Property, customValue?: any) {
     if (!property) return;
 
@@ -494,9 +662,29 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
         }
       }
 
+      // Save the edited field
       await updatePropertyField(property.property_id, key, value);
       setProperty(prev => (prev ? { ...prev, [key]: value } : prev));
       setSaveError(null);
+
+      // ====== Income-producing rules triggered by Status ======
+      if (key === 'status') {
+        const v = String(value || '').toLowerCase();
+        // Vacant & Pending => NO; Leased/Subleased/Financed => YES
+        let nextIncome: 'YES' | 'NO' | null = null;
+        if (v === 'vacant' || v === 'pending') nextIncome = 'NO';
+        else if (v === 'leased' || v === 'subleased' || v === 'financed') nextIncome = 'YES';
+
+        if (nextIncome) {
+          try {
+            await updatePropertyField(property.property_id, 'income_producing' as keyof Property, nextIncome);
+            setProperty(prev => (prev ? { ...prev, income_producing: nextIncome! } : prev));
+          } catch {
+            setSaveError(`Status saved. Failed to set Income-Producing to ${nextIncome}.`);
+          }
+        }
+      }
+      // =======================================================
     } catch {
       setSaveError('Update failed. Please try again.');
     }
@@ -509,9 +697,8 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
     refreshProperties();
   }
 
-  // --- Income-Producing toggle (no flash): only render after property is loaded
+  // --- Income-Producing toggle (manual override button)
   const isIncomeYes = property?.income_producing === 'YES';
-  const incomeLabel = isIncomeYes ? 'INCOME-PRODUCING: YES' : 'INCOME-PRODUCING: NO';
 
   const toggleIncomeProducing = async () => {
     if (!property || togglingIncome) return;
@@ -532,16 +719,6 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
       setTogglingIncome(false);
     }
   };
-
-  function ColsPx() {
-    return (
-      <colgroup>
-        {Array.from({ length: MAX_COLS }).map((_, i) => (
-          <col key={i} style={{ width: COL_WIDTH }} />
-        ))}
-      </colgroup>
-    );
-  }
 
   function HeaderCell({ label, units = 1, blackout = false }: { label?: string; units?: number; blackout?: boolean }) {
     const style = units === 1
@@ -581,6 +758,48 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
             <option value="Commercial">Commercial</option>
             <option value="Residential">Residential</option>
             <option value="Land">Land</option>
+          </select>
+        </td>
+      );
+    }
+    if (k === 'owner' && isEditing) {
+      return (
+        <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
+          <OwnerAutocompleteSimple
+            initialValue={editValue}
+            suggestions={contactNames}
+            onCommit={(finalText) => {
+              setEditValue(finalText);
+              handleSave(k, finalText);
+            }}
+            placeholder="Owner"
+          />
+        </td>
+      );
+    }
+
+    if (k === 'status' && isEditing) {
+      const statusOptions = ['Vacant', 'Pending', 'Leased', 'Subleased', 'Financed'];
+      return (
+        <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
+          <select
+            value={editValue ?? ''}
+            style={{ ...inputCellStyle, textAlign: 'center' }}
+            autoFocus
+            disabled={saving}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={() => handleSave(k)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave(k);
+              if (e.key === 'Escape') setEditingKey(null);
+            }}
+          >
+            <option value="">—</option>
+            {statusOptions.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
           </select>
         </td>
       );
@@ -665,9 +884,9 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
 
     if (k === 'state' && isEditing) {
       const states = [
-        "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN",
-        "MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA",
-        "WA","WV","WI","WY"
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN",
+        "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA",
+        "WA", "WV", "WI", "WY"
       ];
       return (
         <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
@@ -713,14 +932,23 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
       );
     }
 
-    // Read-only cell (click to edit)
+    // Read-only cell (click to edit). Colorize Status via STATUS_COLORS.
+    const statusBg =
+      k === 'status' && typeof val === 'string'
+        ? (STATUS_COLORS[val] || undefined)
+        : undefined;
+
     return (
-      <td colSpan={units} style={{ ...tdBase, cursor: 'pointer' }} onClick={() => handleCellClick(k)}>
+      <td
+        colSpan={units}
+        style={{ ...tdBase, cursor: 'pointer', ...(statusBg ? { background: statusBg } : null) }}
+        onClick={() => handleCellClick(k)}
+      >
         {val !== undefined && val !== null && val !== ''
           ? (k === 'market_value' ? `$${Number(val).toLocaleString()}` : String(val))
           : isRequired
-          ? ''
-          : <span style={{ color: '#bbb' }}>—</span>}
+            ? ''
+            : <span style={{ color: '#bbb' }}>—</span>}
       </td>
     );
   }
@@ -731,81 +959,87 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
 
   return (
     <Box style={{ background: '#ffffffff', minHeight: '100vh', fontFamily: 'system-ui, Arial, Helvetica, sans-serif', padding: 0 }}>
-      {/* Top bar */}
-      <Box style={{ display: 'flex', alignItems: 'center', padding: '40px 40px 20px 40px', gap: 28, position: 'relative' }}>
-        <Image src={logo} alt="Logo" width={92} height={92} style={{ objectFit: 'contain' }} />
-        <Box style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <Title order={1} style={{ fontSize: 52, fontWeight: 900, color: '#111', letterSpacing: 2, fontFamily: 'inherit' }}>
-            PROPERTY VIEW
-          </Title>
-          {property?.property_name && (
-            <Box style={{ display: 'flex', flexDirection: 'column', gap: 10, marginLeft: 18 }}>
-              <span style={{ fontSize: 50, fontWeight: 700, color: '#666', borderLeft: '3px solid #222', paddingLeft: 20, letterSpacing: 1, whiteSpace: 'nowrap' }}>
-                {property.property_name}
-              </span>
-            </Box>
-          )}
-        </Box>
-      </Box>
-
-      <Divider style={{ height: 7, background: '#111', boxShadow: '0px 5px 18px 0 rgba(0,0,0,0.18)', border: 'none', marginBottom: 44, maxWidth: 1800 }} />
-
-      <Box style={{ margin: '0 40px 40px 40px' }}>
+      {/* ===== Sticky Property Name Header ===== */}
+      <Box
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 1000,
+          width: APP_WIDTH,
+          margin: '12px auto 20px',
+          padding: '40px 40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          background: '#384758ff',
+          border: '4px solid #111',
+          borderRadius: 12,
+          boxShadow: '0 12px 28px rgba(0,0,0,0.3)',
+        }}
+      >
         <Button
-          onClick={handleBack}
+          onClick={() => { onBack(); refreshProperties(); }}
+          title="Back to Dashboard"
           style={{
+            position: 'absolute',
+            left: 12,
+            top: 12,
             border: '2px solid #111',
             borderRadius: 0,
             background: '#fff',
             color: '#111',
-            fontWeight: 700,
-            fontSize: 18,
-            padding: '10px 28px',
+            fontWeight: 800,
+            fontSize: 20,
+            padding: '8px 14px',
             textTransform: 'uppercase',
             letterSpacing: 1,
             boxShadow: 'none',
-            marginBottom: 24,
+            lineHeight: 1,
           }}
         >
           DASHBOARD
         </Button>
 
-        {/* OVERVIEW header row with top-right toggle (hidden until property is loaded) */}
-        <Box style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, width: TABLE_WIDTH }}>
-          <Title order={3} style={{ margin: 0, fontWeight: 900, color: '#111', letterSpacing: 1 }}>
-            OVERVIEW
-          </Title>
-
-          {property && (
-            <Button
-              onClick={toggleIncomeProducing}
-              disabled={togglingIncome}
-              title="Toggle income-producing status"
-              style={{
-                border: '2px solid #111',
-                borderRadius: 0,
-                background: isIncomeYes ? '#38d84bff' : '#ff0000ff',
-                color: '#ffffff',
-                fontWeight: 800,
-                fontSize: 14,
-                padding: '8px 14px',
-                textTransform: 'uppercase',
-                letterSpacing: 0.8,
-                boxShadow: 'none',
-                marginLeft: 16,
-                transition: 'background 160ms ease',
-              }}
-            >
-              {togglingIncome ? 'SAVING…' : incomeLabel}
-            </Button>
-          )}
-        </Box>
-
-        {/* Error banner */}
-        {saveError && (
-          <div
+        {property && (
+          <Button
+            onClick={toggleIncomeProducing}
+            disabled={togglingIncome}
+            title="Toggle income-producing status"
             style={{
-              width: TABLE_WIDTH,
+              position: 'absolute',
+              right: 12,
+              top: 12,
+              border: '2px solid #111',
+              borderRadius: 0,
+              background: (property?.income_producing === 'YES') ? '#3e9c57ff' : '#c72727ff',
+              color: '#ffffff',
+              fontWeight: 800,
+              fontSize: 20,
+              padding: '8px 14px',
+              textTransform: 'uppercase',
+              letterSpacing: 0.8,
+              boxShadow: 'none',
+              transition: 'background 160ms ease',
+            }}
+          >
+            {togglingIncome ? 'SAVING…' : (property?.income_producing === 'YES' ? 'INCOME-PRODUCING: YES' : 'INCOME-PRODUCING: NO')}
+          </Button>
+        )}
+
+        <div style={{ fontSize: 60, fontWeight: 800, letterSpacing: 1, color: '#ffffffff', lineHeight: 1.2, textTransform: 'uppercase' }}>
+          {property?.property_name || 'Property'}
+        </div>
+      </Box>
+
+      {/* ===== Centered page container aligned to header width ===== */}
+      <Box style={{ width: APP_WIDTH, margin: '0 auto 40px' }}>
+        {/* Error banner */}
+        {saveError !== null && (
+          <div
+            role="alert"
+            style={{
+              width: '100%',
               marginBottom: 16,
               padding: '10px 18px',
               background: '#ffeded',
@@ -815,9 +1049,35 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
               fontWeight: 600,
               fontSize: 16,
               letterSpacing: 0.5,
+              boxSizing: 'border-box',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              opacity: showSaveError ? 1 : 0,
+              transition: 'opacity 300ms ease',
             }}
           >
-            {saveError}
+            <span style={{ paddingRight: 12 }}>{saveError}</span>
+            <button
+              aria-label="Dismiss error"
+              onClick={dismissSaveError}
+              style={{
+                marginLeft: 12,
+                flex: '0 0 auto',
+                border: '2px solid #a13d3d',
+                background: '#fff',
+                color: '#a13d3d',
+                fontWeight: 900,
+                fontSize: 16,
+                lineHeight: 1,
+                borderRadius: 6,
+                padding: '4px 8px',
+                cursor: 'pointer',
+              }}
+              title="Dismiss"
+            >
+              ×
+            </button>
           </div>
         )}
 
@@ -831,8 +1091,27 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
           </Box>
         ) : property ? (
           <>
+            {/* -------- OVERVIEW LABEL BOX (attached on top of table) -------- */}
+            <Box
+              style={{
+                width: TABLE_WIDTH,
+                boxSizing: 'border-box',
+                margin: '0 auto 0',
+                padding: '12px 16px',
+                background: '#b6b6b6ff',
+                border: `${LABEL_BORDER}px solid #000`,
+                borderBottom: 'none',
+                textAlign: 'center',
+                fontWeight: 900,
+                fontSize: 40,
+                letterSpacing: 1,
+              }}
+            >
+              OVERVIEW
+            </Box>
+
             {/* -------- OVERVIEW TABLE -------- */}
-            <Box style={{ width: TABLE_WIDTH, marginBottom: 12 }}>
+            <Box style={{ width: '100%', marginBottom: 12 }}>
               <Table
                 striped
                 highlightOnHover
@@ -840,15 +1119,19 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
                 style={{
                   fontSize: FONT_SIZE,
                   borderCollapse: 'collapse',
-                  border: '2px solid #222',
-                  boxShadow: '0 6px 18px rgba(0,0,0,0.12)', // ✅ outer drop shadow
+                  border: `${LABEL_BORDER}px solid #000`,
+                  boxShadow: '0 12px 28px rgba(0,0,0,0.3)',
                   background: '#fff',
-                  width: '100%',
+                  width: TABLE_WIDTH,
                   textAlign: 'center',
                   tableLayout: 'fixed',
                 }}
               >
-                <ColsPx />
+                <colgroup>
+                  {Array.from({ length: MAX_COLS }).map((_, i) => (
+                    <col key={i} style={{ width: COL_WIDTH }} />
+                  ))}
+                </colgroup>
 
                 <tbody>
                   {/* Row 1 headers */}
@@ -876,8 +1159,8 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
                     <HeaderCell label="Owner" units={2} />
                     <HeaderCell label="Year" />
                     <HeaderCell label="Type" />
+                    <HeaderCell label="Status" />
                     <HeaderCell label="Current Market Value" />
-                    <HeaderCell blackout />
                     <HeaderCell blackout />
                     <HeaderCell blackout />
                     <HeaderCell blackout />
@@ -888,8 +1171,9 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
                     <ValueCell k="owner" units={2} />
                     <ValueCell k="year" type="number" />
                     <ValueCell k="type" />
+                    {/* Status cell colorized via STATUS_COLORS */}
+                    <ValueCell k="status" />
                     <ValueCell k="market_value" type="number" />
-                    <BlackCell />
                     <BlackCell />
                     <BlackCell />
                     <BlackCell />
@@ -899,25 +1183,23 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
             </Box>
 
             {/* === CONTACT CARDS === */}
-            <ContactSearchPins property_id={property.property_id} width={TABLE_WIDTH} />
+            <ContactSearchPins property_id={property.property_id} width={APP_WIDTH} />
 
             <PurchaseDetailsTable property_id={property.property_id} />
 
-            {/* --- RENT LOG: only visible if income-producing === 'YES' --- */}
-            {isIncomeYes && (
+            {/* --- PAYMENTS / RENT LOG (conditional) --- */}
+            {(property.income_producing === 'YES') && (property.status || '').toLowerCase() === 'financed' ? (
               <Box style={{ marginTop: 48 }}>
-                <Title order={3} style={{ marginBottom: 24, fontWeight: 800, color: '#bd642c' }}>
-                  RENT LOG
-                </Title>
+                <PaymentTable property_id={property.property_id} />
+              </Box>
+            ) : (property.income_producing === 'YES') ? (
+              <Box style={{ marginTop: 48 }}>
                 <RentRollTable property_id={property.property_id} />
               </Box>
-            )}
+            ) : null}
 
             {/* --- TRANSACTION LOG (always visible) --- */}
             <Box style={{ marginTop: 64 }}>
-              <Title order={3} style={{ marginBottom: 24, fontWeight: 800, color: '#31506f' }}>
-                TRANSACTION LOG
-              </Title>
               <TransactionLog property_id={property.property_id} transactions={transactions} setTransactions={setTransactions} />
             </Box>
           </>

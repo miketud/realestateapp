@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Title, Button } from '@mantine/core';
+import { FaSort, FaSortDown, FaSortUp } from 'react-icons/fa';
 import {
   MdOutlineEdit,
   MdOutlineDelete,
@@ -56,6 +57,7 @@ export default function ContactList() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [frozenNameForSort, setFrozenNameForSort] = useState<string | null>(null);
   const [hoverRowId, setHoverRowId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [phoneDrafts, setPhoneDrafts] = useState<Record<number, string>>({});
@@ -210,11 +212,15 @@ export default function ContactList() {
 
   const toggleEdit = (row: Contact) => {
     if (editingRowId === row.contact_id) {
+      // finishing edit → unfreeze
       setEditingRowId(null);
+      setFrozenNameForSort(null);
       return;
     }
+    // starting edit → freeze current name
     setEditingRowId(row.contact_id);
     setExpandedId(row.contact_id);
+    setFrozenNameForSort(row.name || '');
   };
 
   /* layout + derived */
@@ -257,6 +263,7 @@ export default function ContactList() {
     if (e.key === 'Escape') {
       e.preventDefault();
       setEditingRowId(null);
+      setFrozenNameForSort(null); // NEW
     }
   };
   const tableWidth = useMemo(() => COL_WIDTH * 4, []);
@@ -264,73 +271,98 @@ export default function ContactList() {
 
   const renderValue = (val: string | undefined, placeholder: string) =>
     val && String(val).trim().length ? <span>{val}</span> : <span style={{ color: PLACEHOLDER }}>{placeholder}</span>;
+  const effectiveName = (c: Contact) =>
+    editingRowId && c.contact_id === editingRowId && frozenNameForSort !== null
+      ? frozenNameForSort
+      : (c.name || '');
+  // Default order: alphabetical by name (A→Z, case-insensitive)
+  const defaultSort = (arr: Contact[]) =>
+    [...arr].sort((a, b) =>
+      effectiveName(a).toLowerCase().localeCompare(effectiveName(b).toLowerCase())
+    );
 
-  const defaultSort = (arr: Contact[]) => [...arr].sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+  const matchesToken = (c: Contact, token: string) => {
+    const t = token.toLowerCase();
+    const isDigitsOnly = /^\d+$/.test(t);
 
-const matchesToken = (c: Contact, token: string) => {
-  const t = token.toLowerCase();
-  const isDigitsOnly = /^\d+$/.test(t);
+    const textHit =
+      (c.name || '').toLowerCase().includes(t) ||
+      (c.email || '').toLowerCase().includes(t) ||
+      (c.contact_type || '').toLowerCase().includes(t) ||
+      (c.notes || '').toLowerCase().includes(t);
 
-  const textHit =
-    (c.name || '').toLowerCase().includes(t) ||
-    (c.email || '').toLowerCase().includes(t) ||
-    (c.contact_type || '').toLowerCase().includes(t) ||
-    (c.notes || '').toLowerCase().includes(t);
-
-  const phoneHit = isDigitsOnly
-    ? toDigits(c.phone).includes(t) ||
+    const phoneHit = isDigitsOnly
+      ? toDigits(c.phone).includes(t) ||
       fmtUSPhoneFull(c.phone).toLowerCase().includes(t)
-    : false;
+      : false;
 
-  return textHit || phoneHit;
-};
-
-const filteredSorted = useMemo(() => {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-
-  let arr = contacts;
-  if (tokens.length) {
-    arr = contacts.filter((c) => tokens.every((tok) => matchesToken(c, tok)));
-  }
-
-  if (!sortBy) return defaultSort(arr);
-
-  const cmp = (a: Contact, b: Contact) => {
-    const dir = sortDir === 'asc' ? 1 : -1;
-    let va = '';
-    let vb = '';
-    if (sortBy === 'phone') {
-      va = toDigits(a.phone);
-      vb = toDigits(b.phone);
-    } else {
-      va = ((a as any)[sortBy] || '').toString().toLowerCase();
-      vb = ((b as any)[sortBy] || '').toString().toLowerCase();
-    }
-    if (va < vb) return -1 * dir;
-    if (va > vb) return 1 * dir;
-    return 0;
+    return textHit || phoneHit;
   };
 
-  return [...arr].sort(cmp);
-}, [contacts, query, sortBy, sortDir]);
+  const filteredSorted = useMemo(() => {
+    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+    let arr = contacts;
+    if (tokens.length) {
+      arr = contacts.filter((c) => tokens.every((tok) => matchesToken(c, tok)));
+    }
+
+    if (!sortBy) return defaultSort(arr);
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+
+    if (sortBy === 'name') {
+      return [...arr].sort((a, b) => {
+        const va = effectiveName(a).toLowerCase();
+        const vb = effectiveName(b).toLowerCase();
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+      });
+    }
+
+    const cmp = (a: Contact, b: Contact) => {
+      let va = '';
+      let vb = '';
+      if (sortBy === 'phone') {
+        va = toDigits(a.phone);
+        vb = toDigits(b.phone);
+      } else {
+        va = ((a as any)[sortBy] || '').toString().toLowerCase();
+        vb = ((b as any)[sortBy] || '').toString().toLowerCase();
+      }
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    };
+
+    return [...arr].sort(cmp);
+
+  }, [contacts, query, sortBy, sortDir, editingRowId, frozenNameForSort]);
+
+  // ===================== Sortable header (no button/border — whole header clickable) =====================
   const HeaderCell = ({ title, field }: { title: string; field: Exclude<SortKey, null> }) => {
     const active = sortBy === field;
-    const onAscClick = () => {
-      if (active && sortDir === 'asc') setSortBy(null);
-      else {
+
+    const toggleSort = () => {
+      if (!active) {
         setSortBy(field);
         setSortDir('asc');
-      }
-    };
-    const onDescClick = () => {
-      if (active && sortDir === 'desc') setSortBy(null);
-      else {
-        setSortBy(field);
+      } else if (sortDir === 'asc') {
         setSortDir('desc');
+      } else {
+        setSortBy(null); // back to default alphabetical
       }
     };
+
     return (
       <th
+        onClick={toggleSort}
+        title={
+          !active ? `Sort ${title} (A→Z)`
+            : sortDir === 'asc' ? `Sort ${title} (Z→A)`
+              : `Clear sort`
+        }
         style={{
           border: '1.5px solid #111',
           padding: '10px 12px',
@@ -343,53 +375,23 @@ const filteredSorted = useMemo(() => {
           letterSpacing: 0.3,
           position: 'relative',
           textAlign: 'center',
+          cursor: 'pointer',
+          userSelect: 'none',
         }}
       >
         <span>{title}</span>
         <span
           style={{
             position: 'absolute',
-            right: 8,
+            right: 10,
             top: '50%',
             transform: 'translateY(-50%)',
-            display: 'flex',
-            gap: 6,
+            display: 'inline-flex',
+            alignItems: 'center',
+            fontSize: 18, // adjusted icon size
           }}
         >
-          <button
-            onClick={onAscClick}
-            title={`Sort ${title} ↑`}
-            style={{
-              border: '1.5px solid #fff',
-              background: active && sortDir === 'asc' ? '#fff' : 'transparent',
-              color: active && sortDir === 'asc' ? '#111' : '#fff',
-              borderRadius: 4,
-              width: 26,
-              height: 26,
-              lineHeight: '24px',
-              fontWeight: 900,
-              cursor: 'pointer',
-            }}
-          >
-            ▲
-          </button>
-          <button
-            onClick={onDescClick}
-            title={`Sort ${title} ↓`}
-            style={{
-              border: '1.5px solid #fff',
-              background: active && sortDir === 'desc' ? '#fff' : 'transparent',
-              color: active && sortDir === 'desc' ? '#111' : '#fff',
-              borderRadius: 4,
-              width: 26,
-              height: 26,
-              lineHeight: '24px',
-              fontWeight: 900,
-              cursor: 'pointer',
-            }}
-          >
-            ▼
-          </button>
+          {!active ? <FaSort /> : sortDir === 'asc' ? <FaSortUp /> : <FaSortDown />}
         </span>
       </th>
     );
@@ -423,83 +425,83 @@ const filteredSorted = useMemo(() => {
           {listOpen ? <MdExpandLess size={28} /> : <MdExpandMore size={28} />}
         </button>
 
-{/* Search icon + expanding input + clear button */}
-<div style={{ display: 'flex', alignItems: 'center', height: 50 }}>
-  {/* Group: search icon + input (flush, no gap) */}
-  <div style={{ display: 'flex', alignItems: 'center', height: 50 }}>
-    <button
-      aria-label="Search contacts"
-      title="Search contacts"
-      onClick={() => setSearchOpen((v) => !v)}
-      style={{
-        width: 50,
-        height: 50,
-        border: '2px solid #111',
-        background: '#fff',
-        display: 'grid',
-        placeItems: 'center',
-        cursor: 'pointer',
-        lineHeight: 0,
-      }}
-    >
-      <MdOutlineSearch size={28} />
-    </button>
-    <div
-      style={{
-        width: searchOpen ? 300 : 0,
-        height: 50,
-        overflow: 'hidden',
-        transition: 'width 240ms ease',
-      }}
-    >
-      <input
-        ref={searchRef}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search contacts…"
-          onKeyDown={(e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      setListOpen(true);      // 🔑 reveal the contact list
-    }
-  }}
-        style={{
-          width: '100%',
-          height: 50,
-          border: '2px solid #111',
-          borderLeft: 'none', // flush with icon
-          padding: '0 12px',
-          fontSize: 16,
-          outline: 'none',
-          background: '#fff',
-          boxSizing: 'border-box',
-        }}
-      />
-    </div>
-  </div>
+        {/* Search icon + expanding input + clear button */}
+        <div style={{ display: 'flex', alignItems: 'center', height: 50 }}>
+          {/* Group: search icon + input (flush, no gap) */}
+          <div style={{ display: 'flex', alignItems: 'center', height: 50 }}>
+            <button
+              aria-label="Search contacts"
+              title="Search contacts"
+              onClick={() => setSearchOpen((v) => !v)}
+              style={{
+                width: 50,
+                height: 50,
+                border: '2px solid #111',
+                background: '#fff',
+                display: 'grid',
+                placeItems: 'center',
+                cursor: 'pointer',
+                lineHeight: 0,
+              }}
+            >
+              <MdOutlineSearch size={28} />
+            </button>
+            <div
+              style={{
+                width: searchOpen ? 300 : 0,
+                height: 50,
+                overflow: 'hidden',
+                transition: 'width 240ms ease',
+              }}
+            >
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search contacts…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    setListOpen(true);      // 🔑 reveal the contact list
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  height: 50,
+                  border: '2px solid #111',
+                  borderLeft: 'none', // flush with icon
+                  padding: '0 12px',
+                  fontSize: 16,
+                  outline: 'none',
+                  background: '#fff',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+          </div>
 
-  {/* Separate red clear button */}
-  {query && (
-    <button
-      aria-label="Clear search"
-      title="Clear search"
-      onClick={() => setQuery('')}
-      style={{
-        marginLeft: 8,
-        width: 44,
-        height: 44,
-        display: 'grid',
-        placeItems: 'center',
-        background: '#ffe9e9',
-        border: '2px solid #c33',
-        color: '#c33',
-        cursor: 'pointer',
-      }}
-    >
-      <MdOutlineClear size={22} />
-    </button>
-  )}
-</div>
+          {/* Separate red clear button */}
+          {query && (
+            <button
+              aria-label="Clear search"
+              title="Clear search"
+              onClick={() => setQuery('')}
+              style={{
+                marginLeft: 8,
+                width: 44,
+                height: 44,
+                display: 'grid',
+                placeItems: 'center',
+                background: '#ffe9e9',
+                border: '2px solid #c33',
+                color: '#c33',
+                cursor: 'pointer',
+              }}
+            >
+              <MdOutlineClear size={22} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Error banner */}
@@ -581,21 +583,22 @@ const filteredSorted = useMemo(() => {
                 />
               </td>
               <td style={{ ...sharedCellBase, position: 'relative' }}>
-<select
-  className="select-menu"
-  value={draft.contact_type}
-  onChange={(e) => setDraft({ ...draft, contact_type: e.target.value })}
-  style={{ ...selectFullHeightStyle }}
->
-  <option value="">Type</option>
-  <option value="Personal">Personal</option>
-  <option value="Tenant">Tenant</option>
-  <option value="Contractor">Contractor</option>
-  <option value="Vendor">Vendor</option>
-  <option value="Manager">Manager</option>
-  <option value="Emergency Contact">Emergency Contact</option>
-  <option value="Other">Other</option>
-</select>
+                <select
+                  className="select-menu"
+                  value={draft.contact_type}
+                  onChange={(e) => setDraft({ ...draft, contact_type: e.target.value })}
+                  style={{ ...selectFullHeightStyle }}
+                >
+                  <option value="">Type</option>
+                  <option value="Personal">Personal</option>
+                  <option value="Tenant">Tenant</option>
+                  <option value="Owner">Owner</option>
+                  <option value="Contractor">Contractor</option>
+                  <option value="Vendor">Vendor</option>
+                  <option value="Manager">Manager</option>
+                  <option value="Emergency Contact">Emergency Contact</option>
+                  <option value="Other">Other</option>
+                </select>
                 <ContactTypeTag type={draft.contact_type} variant="corner" corner="tr" size={18} />
               </td>
             </tr>
@@ -647,9 +650,9 @@ const filteredSorted = useMemo(() => {
               placeItems: 'center',
               opacity: hoverAdd ? 1 : 0,
               transition: 'opacity 160ms ease-in-out',
-                                background: '#ffe9e9',
-                  border: '2px solid #c33',
-                  color: '#c33',
+              background: '#ffe9e9',
+              border: '2px solid #c33',
+              color: '#c33',
             }}
           >
             <MdOutlineClear size={22} />
@@ -657,7 +660,7 @@ const filteredSorted = useMemo(() => {
         </div>
       </Box>
 
-      {/* List (unchanged markup), wrapped in a smooth collapsible */}
+      {/* List (collapsible) */}
       <div
         style={{
           overflow: 'hidden',
@@ -693,11 +696,22 @@ const filteredSorted = useMemo(() => {
               {filteredSorted.map((c, idx) => {
                 const isExpanded = expandedId === c.contact_id;
                 const isEditing = editingRowId === c.contact_id;
+                const isDeleting = confirmDeleteId === c.contact_id;
+                const isFocused = isEditing || isDeleting;
+                const rowHovered = hoverRowId === c.contact_id;
+                const dimOthers = (editingRowId !== null || confirmDeleteId !== null) && !isFocused;
 
                 return (
                   <React.Fragment key={c.contact_id}>
                     <tr
-                      style={{ height: ROW_HEIGHT }}
+                      style={{
+                        height: ROW_HEIGHT,
+                        transform: rowHovered && !dimOthers && !isFocused ? 'translateY(-4px)' : 'none',
+                        transition: 'transform 150ms ease, filter 150ms ease, opacity 120ms ease',
+                        filter: rowHovered && !dimOthers && !isFocused ? 'drop-shadow(0 10px 18px rgba(0,0,0,0.22))' : 'none',
+                        opacity: dimOthers ? 0.45 : 1,
+                        position: 'relative',
+                      }}
                       onMouseEnter={() => setHoverRowId(c.contact_id)}
                       onMouseLeave={() => setHoverRowId((prev) => (prev === c.contact_id ? null : prev))}
                     >
@@ -892,22 +906,23 @@ const filteredSorted = useMemo(() => {
                         }}
                       >
                         {isEditing ? (
-<select
-  className="select-menu"
-  value={c.contact_type || ''}
-  onChange={(e) => patchContact(c.contact_id, { contact_type: e.target.value })}
-  onKeyDown={handleEditKeyDown}
-  style={{ ...selectFullHeightStyle, background: 'transparent' }}
->
-  <option value="">Type</option>
-  <option value="Personal">Personal</option>
-  <option value="Tenant">Tenant</option>
-  <option value="Contractor">Contractor</option>
-  <option value="Vendor">Vendor</option>
-  <option value="Manager">Manager</option>
-  <option value="Emergency Contact">Emergency Contact</option>
-  <option value="Other">Other</option>
-</select>
+                          <select
+                            className="select-menu"
+                            value={c.contact_type || ''}
+                            onChange={(e) => patchContact(c.contact_id, { contact_type: e.target.value })}
+                            onKeyDown={handleEditKeyDown}
+                            style={{ ...selectFullHeightStyle, background: 'transparent' }}
+                          >
+                            <option value="">Type</option>
+                            <option value="Personal">Personal</option>
+                            <option value="Tenant">Tenant</option>
+                            <option value="Owner">Owner</option>
+                            <option value="Contractor">Contractor</option>
+                            <option value="Vendor">Vendor</option>
+                            <option value="Manager">Manager</option>
+                            <option value="Emergency Contact">Emergency Contact</option>
+                            <option value="Other">Other</option>
+                          </select>
                         ) : (
                           renderValue(c.contact_type || '', 'Type')
                         )}
@@ -939,10 +954,10 @@ const filteredSorted = useMemo(() => {
                             style={{
                               background: 'transparent',
                               border: '2px solid #111',
-                              borderRadius: 4,
+                              borderRadius: 0,
                               padding: 0,
-                              width: 50,
-                              height: 50,
+                              width: 44,
+                              height: 44,
                               display: 'grid',
                               placeItems: 'center',
                               cursor: 'pointer',
@@ -950,7 +965,7 @@ const filteredSorted = useMemo(() => {
                               boxSizing: 'border-box',
                             }}
                           >
-                            <MdOutlineEdit size={35} />
+                            <MdOutlineEdit size={22} />
                           </button>
 
                           <button
@@ -960,10 +975,10 @@ const filteredSorted = useMemo(() => {
                             style={{
                               background: 'transparent',
                               border: '2px solid #111',
-                              borderRadius: 4,
+                              borderRadius: 0,
                               padding: 0,
-                              width: 50,
-                              height: 50,
+                              width: 44,
+                              height: 44,
                               display: 'grid',
                               placeItems: 'center',
                               cursor: 'pointer',
@@ -971,7 +986,7 @@ const filteredSorted = useMemo(() => {
                               boxSizing: 'border-box',
                             }}
                           >
-                            <MdOutlineDelete size={40} />
+                            <MdOutlineDelete size={22} />
                           </button>
                         </div>
                       </td>

@@ -116,6 +116,7 @@ app.delete('/api/properties/:id', async (req, reply) => {
       await tx.loanDetails.deleteMany({ where: { property_id: propertyId } });
       await tx.purchaseDetails.deleteMany({ where: { property_id: propertyId } });
       await tx.rentLog.deleteMany({ where: { property_id: propertyId } });
+      await tx.paymentLog.deleteMany({ where: { property_id: propertyId } });
       await tx.transaction.deleteMany({ where: { property_id: propertyId } });
 
       // then the property
@@ -320,6 +321,8 @@ app.delete('/api/properties/:id', async (req, reply) => {
           year: Number(b.year),
         },
       };
+
+      
 
 
 // detect edits to money fields
@@ -545,3 +548,70 @@ start().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+// =====================================================
+// PAYMENT LOG (mirrors RentLog) — Prisma model PaymentLog
+// =====================================================
+app.get('/api/paymentlog', async (req, reply) => {
+  const { property_id, year } = req.query as { property_id?: string; year?: string };
+  if (!property_id || !year) {
+    return reply.status(400).send({ error: 'property_id and year are required' });
+  }
+  try {
+    const rows = await prisma.paymentLog.findMany({
+      where: { property_id: Number(property_id), year: Number(year) },
+      orderBy: [{ year: 'asc' }], // optional: add month ordering if you store numeric month
+    });
+    reply.send(rows);
+  } catch (e: any) {
+    reply.status(500).send({ error: 'Failed to load payment log', details: e.message });
+  }
+});
+
+app.post('/api/paymentlog', async (req, reply) => {
+  const b = req.body as {
+    property_id: number | string;
+    year: number | string;
+    month: string;
+    payment_amount?: number | null;
+    check_number?: number | null;
+    notes?: string | null;
+    date_paid?: string | null;
+  };
+  if (!b?.property_id || !b?.year || !b?.month) {
+    return reply.status(400).send({ error: 'property_id, year, month required' });
+  }
+
+  try {
+    const key = {
+      property_id_month_year: {
+        property_id: Number(b.property_id),
+        month: String(b.month),
+        year: Number(b.year),
+      },
+    };
+
+    const updateData: any = {
+      payment_amount: b.payment_amount ?? undefined,
+      check_number:   b.check_number   ?? undefined,
+      notes:          b.notes          ?? undefined,
+      date_paid:      b.date_paid ? new Date(b.date_paid) : undefined,
+    };
+
+    const createData: any = {
+      property_id:    Number(b.property_id),
+      month:          String(b.month),
+      year:           Number(b.year),
+      payment_amount: b.payment_amount ?? 0,
+      check_number:   b.check_number   ?? null,
+      notes:          b.notes          ?? null,
+      date_paid:      b.date_paid ? new Date(b.date_paid) : null,
+    };
+
+    const row = await prisma.paymentLog.upsert({ where: key, update: updateData, create: createData });
+    reply.send(row);
+  } catch (e: any) {
+    reply.status(400).send({ error: 'Payment log save failed', details: e.message });
+  }
+});
+

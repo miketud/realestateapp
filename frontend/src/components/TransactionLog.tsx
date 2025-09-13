@@ -20,11 +20,28 @@ const ENTRY_ROW_BG = '#f4f9ff';
 const HILITE_BG = '#eef5ff';
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
 
+const TXN_TYPES = [
+  'Security Deposit',
+  'Late Fee',
+  'Maintenance',
+  'Repairs',
+  'Property Tax',
+  'Insurance',
+  'HOA Fee',
+  'Utilities',
+  'Management Fee',
+  'Leasing Fee',
+  'Advertising / Marketing',
+  'Legal / Professional Fees',
+  'Misc Income',
+  'Misc Expense',
+  'Refund / Rebate',
+] as const;
 
 
 // --- STYLES ---
 const thStyle: CSSProperties = {
-  border: '1px solid #111', padding: '10px 14px', background: '#164e7e', color: '#fff',
+  border: '1px solid #111', padding: '10px 14px', background: '#000000ff', color: '#fff',
   fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center',
   whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word',
 };
@@ -136,12 +153,11 @@ export default function TransactionLog({ property_id, transactions, setTransacti
     (addDraft.transaction_date ?? '').trim() !== '';
 
   // ---------- Add row ----------
-  function handleAddInput(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleAddInput(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = e.target;
     if (name === 'transaction_amount') setAddDraft(p => ({ ...p, [name]: sanitizeMoneyInput(value) }));
     else setAddDraft(p => ({ ...p, [name]: value }));
   }
-
   async function handleAddSave() {
     if (!addIsComplete) return;
     try {
@@ -178,7 +194,7 @@ export default function TransactionLog({ property_id, transactions, setTransacti
   };
 
   // ---------- Edit row ----------
-  function handleInput(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleInput(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = e.target;
     if (name === 'transaction_amount') setDraft(p => ({ ...p, [name]: sanitizeMoneyInput(value) }));
     else setDraft(p => ({ ...p, [name]: value }));
@@ -246,13 +262,38 @@ export default function TransactionLog({ property_id, transactions, setTransacti
   const focusShadow = (cond: boolean): CSSProperties => (cond ? { boxShadow: FOCUS_RING } : {});
 
   return (
-    <Box style={{ marginTop: 40 }}>
+    <Box style={{ marginTop: 40, width: TABLE_WIDTH }}>
+      {/* TRANSACTION LOG TITLE (attached to table) */}
+      <div
+        style={{
+          width: TABLE_WIDTH,
+          boxSizing: 'border-box',
+          margin: '0 auto 0',
+          padding: '12px 16px',
+          background: '#b6b6b6ff',        // soft yellow
+          border: '4px solid #000',     // thick black border
+          borderBottom: 'none',         // attaches to table
+          textAlign: 'center',
+          fontWeight: 900,
+          fontSize: 40,
+          letterSpacing: 1,
+        }}
+      >
+        TRANSACTION LOG
+      </div>
+
       <div style={{ width: TABLE_WIDTH }}>
         <Table
           style={{
-            width: '100%', fontSize: 16, borderCollapse: 'collapse', border: '2px solid black',
-            boxShadow: 'inset 0 0 10px rgba(0,0,0,0.08)', marginTop: 0, marginBottom: 32,
-            background: '#fff', tableLayout: 'fixed',
+            width: '100%',
+            fontSize: 16,
+            borderCollapse: 'collapse',
+            border: '4px solid #000',                 // upgraded border
+            boxShadow: '0 12px 28px rgba(0,0,0,0.3)', // stronger drop shadow
+            marginTop: 0,
+            marginBottom: 32,
+            background: '#fff',
+            tableLayout: 'fixed',
           }}
         >
           <colgroup>
@@ -277,15 +318,20 @@ export default function TransactionLog({ property_id, transactions, setTransacti
             {/* Entry row */}
             <tr style={{ background: ENTRY_ROW_BG, ...addRowStyle }}>
               <td style={{ ...tdStyle, width: TYPE_WIDTH, background: ENTRY_ROW_BG, ...focusShadow(isAddRowFocused && focus?.col === 'type') }}>
-                <input
+                <select
                   name="transaction_type"
                   value={addDraft.transaction_type ?? ''}
                   onChange={handleAddInput}
                   onFocus={() => setFocus({ kind: 'add', col: 'type' })}
-                  placeholder="Transaction Type"
-                  style={inputStyle}
+                  style={{ ...inputStyle, height: '100%', background: 'transparent' }}
                   onKeyDown={addKeyDown}
-                />
+                  className="select-menu"
+                >
+                  <option value="">Select Type</option>
+                  {TXN_TYPES.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
               </td>
               <td style={{ ...tdStyle, width: NOTES_WIDTH, background: ENTRY_ROW_BG, ...focusShadow(isAddRowFocused && focus?.col === 'notes') }}>
                 <input
@@ -352,16 +398,21 @@ export default function TransactionLog({ property_id, transactions, setTransacti
                 return editingIdx === idx ? (
                   <tr key={tx.transaction_id || `edit-${idx}`} style={{ ...(isRowFocused ? { outline: '2px solid #325dae', background: HILITE_BG } : {}) }}>
                     <td style={{ ...tdStyle, width: TYPE_WIDTH, ...focusShadow(isRowFocused && focus?.col === 'type') }}>
-                      <input
+                      <select
                         name="transaction_type"
-                        ref={firstInputRef}
+                        ref={firstInputRef as any}
                         value={draft.transaction_type ?? ''}
                         onChange={handleInput}
                         onFocus={() => setFocus({ kind: 'edit', index: idx, col: 'type' })}
-                        placeholder="Transaction Type"
-                        style={inputStyle}
+                        style={{ ...inputStyle, height: '100%', background: 'transparent' }}
                         onKeyDown={escUnselect}
-                      />
+                        className="select-menu"
+                      >
+                        <option value="">Transaction Type</option>
+                        {TXN_TYPES.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
                     </td>
                     <td style={{ ...tdStyle, width: NOTES_WIDTH, ...focusShadow(isRowFocused && focus?.col === 'notes') }}>
                       <input
@@ -430,5 +481,5 @@ export default function TransactionLog({ property_id, transactions, setTransacti
         </Table>
       </div>
     </Box>
-  );
-}
+  )
+};

@@ -109,7 +109,7 @@ export default function Reports() {
     setExpPickerOpen(false);
   };
 
-  // ===== RENT REPORT
+  // ===== INCOME REPORT
   async function fetchRent(property_id: number, y: number): Promise<RentRow[]> {
     const res = await fetch(`${RENT_API}?property_id=${property_id}&year=${y}`);
     if (!res.ok) return Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: null }));
@@ -247,7 +247,7 @@ export default function Reports() {
     const stamp = new Date().toLocaleString();
     const emptyAll = rentResults.length === 0;
     const html = `
-<!doctype html><html><head><meta charset="utf-8"><title>Rent Report</title>
+<!doctype html><html><head><meta charset="utf-8"><title>Income Report</title>
 <style>
 *{box-sizing:border-box}body{font-family:system-ui,Arial,Helvetica,sans-serif;padding:24px;color:#111}
 h1{margin:0 0 12px;font-size:22px}.summary{margin:10px 0 16px;font-weight:900;border:1px solid #111;padding:10px 14px;background:#faf9f5}
@@ -259,7 +259,7 @@ td{padding:10px;border:1px solid #222;text-align:center}tfoot td{font-weight:900
 .footer{margin-top:22px;font-size:12px;color:#555;text-align:right}
 .note{padding:12px 14px;border:1px dashed #999;background:#f7f7f7}
 </style></head><body>
-<h1>Rent Report — ${rentYear}</h1>
+<h1>Income Report — ${rentYear}</h1>
 ${emptyAll
         ? `<div class="note">No properties selected or no matching rent entries for ${rentYear}.</div>`
         : `<div class="summary">Grand Total: $${rentResults.reduce((s, g) => s + g.total, 0).toLocaleString()}</div>
@@ -351,7 +351,7 @@ ${emptyAll
             color: '#111',
           }}
         >
-          {rentBusy ? 'Generating…' : 'Rent Report'}
+          {rentBusy ? 'Generating…' : 'Income Report'}
         </Button>
 
         {/* RENT picker */}
