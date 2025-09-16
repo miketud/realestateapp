@@ -615,3 +615,83 @@ app.post('/api/paymentlog', async (req, reply) => {
   }
 });
 
+app.get('/api/property_markers', async (_req, reply) => {
+  try {
+    const rows = await prisma.property.findMany({
+      select: {
+        property_id: true,
+        property_name: true,
+        address: true,  // street
+        city: true,
+        state: true,
+        zipcode: true,
+        lat: true,
+        lng: true,
+      },
+      orderBy: { property_id: 'asc' },
+    });
+
+    reply.send(rows.map(r => ({
+      id: r.property_id,
+      name: r.property_name ?? 'Property',
+      address: r.address,             // street only
+      city: r.city ?? '',
+      state: r.state ?? '',
+      zipcode: r.zipcode ?? '',
+      lat: r.lat ?? null,
+      lng: r.lng ?? null,
+    })));
+  } catch (e) {
+    app.log.error(e);
+    reply.code(500).send({ error: 'Failed to build markers' });
+  }
+});
+
+// --------- One-time/occasional helper to fill missing lat/lng ----------
+type Geo = { lat: number; lng: number };
+
+async function geocodeNominatim(q: string): Promise<Geo | null> {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'PropertyManager/1.0 (admin@yourdomain.com)',
+      'Accept-Language': 'en-US,en;q=0.8',
+    },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as Array<{ lat: string; lon: string }>;
+  if (!data?.length) return null;
+  return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+}
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+app.post('/api/admin/geocode-missing', async (_req, reply) => {
+  try {
+    const props = await prisma.property.findMany({
+      where: { OR: [{ lat: null }, { lng: null }] },
+      select: { property_id: true, address: true, city: true, state: true, zipcode: true },
+      orderBy: { property_id: 'asc' },
+    });
+
+    const updated: number[] = [];
+    for (let i = 0; i < props.length; i++) {
+      const p = props[i];
+      const full = [p.address, p.city, p.state, p.zipcode].filter(Boolean).join(', ');
+      const hit = await geocodeNominatim(full).catch(() => null);
+      if (hit) {
+        await prisma.property.update({
+          where: { property_id: p.property_id },
+          data: { lat: hit.lat, lng: hit.lng, geocoded_at: new Date() },
+        });
+        updated.push(p.property_id);
+      }
+      if (i < props.length - 1) await sleep(1100); // be polite to OSM (≈1 req/sec)
+    }
+
+    reply.send({ updated_count: updated.length, ids: updated });
+  } catch (e) {
+    app.log.error(e);
+    reply.code(500).send({ error: 'Geocoding failed' });
+  }
+});

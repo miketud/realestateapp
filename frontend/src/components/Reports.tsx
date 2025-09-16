@@ -1,23 +1,25 @@
-// Reports.tsx — Material feel + independent rows + strict year filter + export mirrors UI + row Clear icon
-import { useEffect, useMemo, useState } from 'react';
-import { Box, Title, Table, Button, Center, Loader } from '@mantine/core';
-import { MdOutlineClear } from 'react-icons/md';
+// Reports.tsx — Consistent Universal dropdowns for Year and multi-Property selection
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Box, Table, Button, Center, Loader } from '@mantine/core';
 import { getProperties } from '../api/properties';
+import { IconButton } from './ui/Icons';
+import UniversalDropdown from './UniversalDropdown';
 
-// ===== Types
+/* ================= Types ================= */
 type Property = { property_id: number; property_name: string };
 type RentRow = { month: number; amount: number | null };
 type ExpenseRow = { type: string; amount: number | null; date: string };
 
-// ===== Constants
+/* ================= Constants ================= */
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 const RENT_API = '/api/rentlog';
 const TX_API = '/api/transactions';
 
-const CONTROL_H = 42;
-const BTN_MIN_W = 180;       // also Year width
-const YEAR_W = BTN_MIN_W;    // keep year inputs identical
+const CONTROL_H = 64;
+const BTN_MIN_W = 180;
+const YEAR_W = BTN_MIN_W;
 const PICKER_W = 320;
+
 const GRID_GAP = 24;
 const CARD_W = 420;
 const GRID_MAX_W = CARD_W * 3 + GRID_GAP * 2; // 3 cards per row
@@ -25,38 +27,374 @@ const COL_PCT = '33.3333%';
 const PLACEHOLDER = '#9aa1a8';
 
 const currentYear = () => new Date().getFullYear();
+const YEARS: number[] = Array.from({ length: 31 }, (_, i) => currentYear() + 1 - i);
 
-// ===== Material Shadows (UI)
-const CELL_SHADOW = '0 2px 4px rgba(0,0,0,0.08)';
+/* ================= Shared styles ================= */
+const CONTROL_SHADOW = '0 8px 20px rgba(0,0,0,0.10)';
+const CELL_SHADOW = CONTROL_SHADOW;
 const TABLE_SHADOW = '0 8px 20px rgba(0,0,0,0.10)';
 const CARD_SHADOW = '0 8px 18px rgba(0,0,0,0.12)';
 const CARD_SHADOW_HOVER = '0 16px 32px rgba(0,0,0,0.18)';
 const BANNER_SHADOW = 'inset 0 -1px 0 rgba(0,0,0,0.15)';
 
+const controlBase: React.CSSProperties = {
+  height: CONTROL_H,
+  display: 'inline-flex',
+  alignItems: 'center',
+  border: '2px solid #111',
+  borderRadius: 0,
+  background: '#fff',
+  fontWeight: 800,
+  fontSize: 20,
+  lineHeight: 1,
+  boxSizing: 'border-box',
+  boxShadow: CONTROL_SHADOW,
+};
+
+const btnBase: React.CSSProperties = {
+  ...controlBase,
+  padding: '0 16px',
+  letterSpacing: 1,
+  textTransform: 'uppercase',
+  cursor: 'pointer',
+  minWidth: BTN_MIN_W,
+  justifyContent: 'center',
+};
+
+const btnClear: React.CSSProperties = { ...btnBase, background: '#ffe9e9', borderColor: '#c33', color: '#c33' };
+const btnExport: React.CSSProperties = { ...btnBase, background: '#efe6ff' };
+
+const headerTh: React.CSSProperties = {
+  border: '1.5px solid #111',
+  padding: '0 12px',
+  height: CONTROL_H,
+  background: '#111',
+  color: '#fff',
+  fontWeight: 800,
+  letterSpacing: 0.3,
+  textAlign: 'center',
+  verticalAlign: 'middle',
+  boxShadow: CELL_SHADOW,
+};
+const td: React.CSSProperties = {
+  border: '1px solid #222',
+  padding: '0 13px',
+  height: CONTROL_H,
+  fontFamily: 'inherit',
+  fontSize: 18,
+  textAlign: 'center',
+  verticalAlign: 'middle',
+  background: '#fff',
+  boxShadow: CELL_SHADOW,
+};
+const tableShadow: React.CSSProperties = {
+  boxShadow: TABLE_SHADOW,
+  background: '#fff',
+};
+
+/* ================= Universal Multi Dropdown (consistent look) ================= */
+type MultiOption = { value: number; label: string; disabled?: boolean };
+
+function UniversalMultiDropdown({
+  values,
+  options,
+  placeholder,
+  includeAll = true,
+  allLabel = 'ALL Properties',
+  onChange,
+  ariaLabel,
+  maxMenuHeight = 320,
+}: {
+  values: number[] | 'ALL';
+  options: MultiOption[];
+  placeholder: string;
+  includeAll?: boolean;
+  allLabel?: string;
+  onChange: (next: number[] | 'ALL') => void;
+  ariaLabel?: string;
+  maxMenuHeight?: number;
+}) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [active, setActive] = useState<number>(-1); // -1 header, 0..N options (including "ALL" if present)
+
+  // Build menu model: header + (optional) ALL + divider + options
+  const menuItems = useMemo(() => {
+    const opts = options.map((o) => ({ ...o }));
+    return {
+      header: { text: placeholder.toUpperCase() },
+      allIdx: includeAll ? 0 : -1,
+      items: includeAll ? opts : opts,
+    };
+  }, [options, placeholder, includeAll]);
+
+  // Label logic consistent with the earlier propertyLabel()
+  const buttonLabel = useMemo(() => {
+    if (values === 'ALL') return allLabel;
+    if (!values.length) return 'Select properties';
+    if (values.length === 1) {
+      const one = options.find((o) => o.value === values[0]);
+      return one ? one.label : '1 selected';
+    }
+    return `${values.length} selected`;
+  }, [values, options, allLabel]);
+
+  // Outside click to close
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current) return;
+      const t = e.target as Node | null;
+      if (t && !wrapRef.current.contains(t)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
+  // Open & set initial active
+  const openMenu = () => {
+    setOpen(true);
+    // first enabled item (skip header)
+    setActive(includeAll ? 0 : (options.length ? 0 : -1));
+  };
+
+  const isChecked = (v: number) => (values === 'ALL' ? true : (values as number[]).includes(v));
+
+  // Toggle logic
+  const toggleAll = () => {
+    onChange(values === 'ALL' ? [] : 'ALL');
+  };
+  const toggleOne = (v: number) => {
+    if (values === 'ALL') {
+      onChange([v]);
+      return;
+    }
+    const set = new Set<number>(values as number[]);
+    set.has(v) ? set.delete(v) : set.add(v);
+    onChange(Array.from(set));
+  };
+
+  const totalCount = includeAll ? options.length + 1 : options.length;
+  const nextEnabledIdx = (start: number, dir: 1 | -1) => {
+    if (totalCount <= 0) return -1;
+    let i = start;
+    for (let step = 0; step < totalCount + 1; step++) {
+      i = (i + dir + totalCount) % totalCount;
+      // All item exists at 0 if includeAll
+      if (includeAll && i === 0) return 0;
+      // Options index mapping: when includeAll, option i maps to options[i-1]
+      const opt = includeAll ? options[i - 1] : options[i];
+      if (opt && !opt.disabled) return i;
+    }
+    return -1;
+  };
+
+  const commitAtIndex = (idx: number) => {
+    if (idx < 0) return;
+    if (includeAll && idx === 0) {
+      toggleAll();
+      return;
+    }
+    const opt = includeAll ? options[idx - 1] : options[idx];
+    if (!opt || opt.disabled) return;
+    toggleOne(opt.value);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openMenu();
+      } else if (e.key === 'Escape') {
+        (e.currentTarget as HTMLButtonElement).blur();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActive((i) => nextEnabledIdx(i, 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive((i) => nextEnabledIdx(i, -1));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setActive(includeAll ? 0 : 0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setActive(includeAll ? options.length : options.length - 1);
+    } else if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      if (active >= 0) commitAtIndex(active);
+    }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%', height: '100%' }} onKeyDown={onKeyDown}>
+      {/* Trigger button styled like UniversalDropdown's button (fills parent box) */}
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel || placeholder}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          background: 'transparent',
+          font: 'inherit',
+          textAlign: 'left',
+          padding: '0 14px',
+          cursor: 'pointer',
+          // Square + custom focus ring
+          borderRadius: 0,
+          appearance: 'none',
+          WebkitAppearance: 'none',
+          MozAppearance: 'none',
+          outline: 'none',
+          boxShadow: focused ? 'inset 0 0 0 2px #111' : 'none',
+        }}
+      >
+        <span style={{ fontWeight: 800 }}>{buttonLabel}</span>
+      </button>
+
+      {open && (
+        <div
+          ref={listRef}
+          role="listbox"
+          aria-label={placeholder}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            width: '100%',
+            maxHeight: maxMenuHeight,
+            overflowY: 'auto',
+            background: '#fff',
+            border: '2px solid #111',
+            zIndex: 2000,
+            boxShadow: '0 10px 24px rgba(0,0,0,0.12)',
+          }}
+        >
+          {/* Header placeholder (non-clickable) */}
+          <div
+            style={{
+              padding: '10px 12px',
+              fontWeight: 800,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+              background: '#f8f8f8',
+              color: '#333',
+              cursor: 'default',
+              userSelect: 'none',
+            }}
+          >
+            {placeholder}
+          </div>
+          {/* Thin divider */}
+          <div style={{ height: 1, background: '#e5e5e5' }} />
+
+          {/* ALL */}
+          {includeAll && (
+            <div
+              role="option"
+              aria-selected={values === 'ALL'}
+              onMouseEnter={() => setActive(0)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => toggleAll()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 12px',
+                background: active === 0 ? '#eef5ff' : '#fff',
+                cursor: 'pointer',
+                borderTop: '1px solid #f2f2f2',
+              }}
+            >
+              <span style={{ fontWeight: 700 }}>{allLabel}</span>
+              <input type="checkbox" readOnly checked={values === 'ALL'} />
+            </div>
+          )}
+
+          {/* Options */}
+          {options.map((opt, i) => {
+            const idx = includeAll ? i + 1 : i;
+            const isActive = active === idx;
+            const checked = isChecked(opt.value);
+            return (
+              <div
+                key={opt.value}
+                role="option"
+                aria-selected={checked}
+                onMouseEnter={() => setActive(idx)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => !opt.disabled && toggleOne(opt.value)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: isActive ? '#eef5ff' : '#fff',
+                  color: opt.disabled ? '#999' : '#111',
+                  cursor: opt.disabled ? 'not-allowed' : 'pointer',
+                  borderTop: '1px solid #f2f2f2',
+                }}
+              >
+                <span>{opt.label}</span>
+                <input type="checkbox" readOnly checked={checked} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================= Component ================= */
 export default function Reports() {
-  // One shared property catalogue (sorted A→Z)
+  // Properties catalog (A→Z)
   const [properties, setProperties] = useState<Property[]>([]);
   useEffect(() => {
     (async () => {
       const list = await getProperties();
       const mapped = (list || [])
-        .map((p: any) => ({ property_id: p.property_id, property_name: p.property_name }))
+        .map((p: any) => ({
+          property_id: p.property_id,
+          property_name: p.property_name,
+        }))
         .sort((a, b) => a.property_name.localeCompare(b.property_name));
       setProperties(mapped);
     })();
   }, []);
 
-  // ===== RENT controls (independent)
-  const [rentPickerOpen, setRentPickerOpen] = useState(false);
+  // Fade-in
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(t);
+  }, []);
+
+  // RENT controls
   const [rentSelected, setRentSelected] = useState<number[] | 'ALL'>([]);
   const [rentYear, setRentYear] = useState(currentYear());
 
-  // ===== EXPENSE controls (independent)
-  const [expPickerOpen, setExpPickerOpen] = useState(false);
+  // EXPENSE controls
   const [expSelected, setExpSelected] = useState<number[] | 'ALL'>([]);
   const [expYear, setExpYear] = useState(currentYear());
 
-  // Row “dirty” (to show the Clear icon)
+  // “Dirty” flags (show Clear inputs icon)
   const rentDirty =
     (rentSelected === 'ALL' || (Array.isArray(rentSelected) && rentSelected.length > 0)) ||
     rentYear !== currentYear();
@@ -64,7 +402,7 @@ export default function Reports() {
     (expSelected === 'ALL' || (Array.isArray(expSelected) && expSelected.length > 0)) ||
     expYear !== currentYear();
 
-  // ===== Results state
+  // Results
   const [rentBusy, setRentBusy] = useState(false);
   const [rentResults, setRentResults] = useState<
     { property_id: number; property_name: string; rows: RentRow[]; total: number }[]
@@ -74,42 +412,22 @@ export default function Reports() {
     { property_id: number; property_name: string; rows: ExpenseRow[]; total: number }[]
   >([]);
 
-  // ===== Helpers
-  const propertyLabel = (sel: number[] | 'ALL') => {
-    if (sel === 'ALL') return 'ALL Properties';
-    if (!sel.length) return 'Select properties';
-    if (sel.length === 1) {
-      const one = properties.find(p => p.property_id === sel[0]);
-      return one ? one.property_name : '1 selected';
-    }
-    return `${sel.length} selected`;
-  };
-
+  // Helpers
   const ready = (year: number, sel: number[] | 'ALL') => {
     const yOk = Number.isInteger(year) && year >= 1900 && year <= 3000;
     const pOk = sel === 'ALL' || (Array.isArray(sel) && sel.length > 0);
     return yOk && pOk;
   };
-
-  const toggleOne = (sel: number[] | 'ALL', id: number): number[] => {
-    if (sel === 'ALL') return [id];
-    const set = new Set(sel);
-    set.has(id) ? set.delete(id) : set.add(id);
-    return Array.from(set);
-  };
-
   const resetRentInputs = () => {
     setRentSelected([]);
     setRentYear(currentYear());
-    setRentPickerOpen(false);
   };
   const resetExpInputs = () => {
     setExpSelected([]);
     setExpYear(currentYear());
-    setExpPickerOpen(false);
   };
 
-  // ===== INCOME REPORT
+  /* ================= INCOME REPORT ================= */
   async function fetchRent(property_id: number, y: number): Promise<RentRow[]> {
     const res = await fetch(`${RENT_API}?property_id=${property_id}&year=${y}`);
     if (!res.ok) return Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: null }));
@@ -149,18 +467,19 @@ export default function Reports() {
   const clearRent = () => setRentResults([]);
   const rentGrand = rentResults.reduce((s, g) => s + g.total, 0);
 
-  // ===== EXPENSE REPORT
+  /* ================= EXPENSE REPORT ================= */
   async function fetchExpenses(property_id: number, y: number): Promise<ExpenseRow[]> {
-    // Keep server filter if available, but enforce client-side by year
     const res = await fetch(`${TX_API}?property_id=${property_id}&year=${y}`);
     if (!res.ok) return [];
     const rows = await res.json();
+
     const yearOf = (iso: any): number | null => {
       if (!iso) return null;
       const s = String(iso);
       const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s) || /^(\d{4})/.exec(s);
       return m ? Number(m[1]) : null;
     };
+
     const list: ExpenseRow[] = (Array.isArray(rows) ? rows : [])
       .map((t: any) => ({
         type: String(t.transaction_type ?? '').trim(),
@@ -169,6 +488,7 @@ export default function Reports() {
       }))
       .filter(r => yearOf(r.date) === y)
       .sort((a, b) => a.date.localeCompare(b.date));
+
     return list;
   }
 
@@ -193,160 +513,62 @@ export default function Reports() {
   const clearExpense = () => setExpResults([]);
   const expGrand = expResults.reduce((s, g) => s + g.total, 0);
 
-  // ===== Shared styles
-  const controlBase: React.CSSProperties = {
-    height: CONTROL_H,
-    display: 'inline-flex',
-    alignItems: 'center',
-    border: '2px solid #111',
-    borderRadius: 0,
-    background: '#fff',
-    fontWeight: 700,
-    lineHeight: 1,
-    boxSizing: 'border-box',
-  };
-  const btnBase: React.CSSProperties = {
-    ...controlBase,
-    padding: '0 18px',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    cursor: 'pointer',
-    minWidth: BTN_MIN_W,
-    justifyContent: 'center',
-  };
+  /* ================= UI helpers ================= */
+  const yearOptions = useMemo(
+    () => YEARS.map((y) => ({ value: String(y) })),
+    []
+  );
+  const propertyOptions = useMemo<MultiOption[]>(
+    () => properties.map((p) => ({ value: p.property_id, label: p.property_name })),
+    [properties]
+  );
 
-  const btnClear: React.CSSProperties = { ...btnBase, background: '#ffe9e9' }; // red
-  const btnExport: React.CSSProperties = { ...btnBase, background: '#efe6ff' }; // purple
-
-  const headerTh: React.CSSProperties = {
-    border: '1.5px solid #111',
-    padding: '10px 12px',
-    background: '#111',
-    color: '#fff',
-    fontWeight: 800,
-    letterSpacing: 0.3,
-    textAlign: 'center',
-    boxShadow: CELL_SHADOW, // material cell shadow
-  };
-  const td: React.CSSProperties = {
-    border: '1px solid #222',
-    padding: '13px',
-    fontFamily: 'inherit',
-    fontSize: 18,
-    textAlign: 'center',
-    verticalAlign: 'middle',
-    boxShadow: CELL_SHADOW, // material cell shadow
-  };
-  const tableShadow: React.CSSProperties = {
-    boxShadow: TABLE_SHADOW, // material table shadow
-    background: '#fff',
-  };
-
-  // ===== EXPORT (mirror UI incl. empty states)
-  const exportRent = () => {
-    const stamp = new Date().toLocaleString();
-    const emptyAll = rentResults.length === 0;
-    const html = `
-<!doctype html><html><head><meta charset="utf-8"><title>Income Report</title>
-<style>
-*{box-sizing:border-box}body{font-family:system-ui,Arial,Helvetica,sans-serif;padding:24px;color:#111}
-h1{margin:0 0 12px;font-size:22px}.summary{margin:10px 0 16px;font-weight:900;border:1px solid #111;padding:10px 14px;background:#faf9f5}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:${GRID_GAP}px}.group{border:1px solid #111;page-break-inside:avoid}
-.gtitle{background:#ece8d4;padding:8px 10px;font-weight:900;letter-spacing:.6px;border-bottom:1px solid #111}
-table{width:100%;border-collapse:collapse;table-layout:fixed}col{width:33.3333%}
-th{background:#111;color:#fff;font-weight:800;letter-spacing:.3px;padding:8px 10px;border:1px solid #111;text-align:center}
-td{padding:10px;border:1px solid #222;text-align:center}tfoot td{font-weight:900;background:#faf9f5}
-.footer{margin-top:22px;font-size:12px;color:#555;text-align:right}
-.note{padding:12px 14px;border:1px dashed #999;background:#f7f7f7}
-</style></head><body>
-<h1>Income Report — ${rentYear}</h1>
-${emptyAll
-        ? `<div class="note">No properties selected or no matching rent entries for ${rentYear}.</div>`
-        : `<div class="summary">Grand Total: $${rentResults.reduce((s, g) => s + g.total, 0).toLocaleString()}</div>
-     <div class="grid">
-       ${rentResults.map(g => `
-         <div class="group">
-           <div class="gtitle">${g.property_name}</div>
-           <table><colgroup><col/><col/><col/></colgroup>
-             <thead><tr><th>Year</th><th>Month</th><th>Amount</th></tr></thead>
-             <tbody>
-               ${g.rows.length === 0
-            ? `<tr><td colspan="3" style="color:#c33;font-weight:600">No transactions</td></tr>`
-            : g.rows.map(r => `
-                     <tr><td>${rentYear}</td><td>${MONTHS[r.month - 1]}</td><td>${r.amount == null ? '—' : `$${r.amount.toLocaleString()}`}</td></tr>
-                   `).join('')}
-             </tbody>
-             <tfoot><tr><td colspan="2">Total</td><td>$${g.total.toLocaleString()}</td></tr></tfoot>
-           </table>
-         </div>
-       `).join('')}
-     </div>`}
-<div class="footer">Report generated ${stamp}</div>
-<script>window.onload=()=>{window.print();}</script>
-</body></html>`;
-    const w = window.open('', '_blank'); if (!w) return;
-    w.document.open(); w.document.write(html); w.document.close();
-  };
-
-  const exportExpense = () => {
-    const stamp = new Date().toLocaleString();
-    const emptyAll = expResults.length === 0 || expResults.every(grp => grp.rows.length === 0);
-    const html = `
-<!doctype html><html><head><meta charset="utf-8"><title>Expense Report</title>
-<style>
-*{box-sizing:border-box}body{font-family:system-ui,Arial,Helvetica,sans-serif;padding:24px;color:#111}
-h1{margin:0 0 12px;font-size:22px}.summary{margin:10px 0 16px;font-weight:900;border:1px solid #111;padding:10px 14px;background:#faf9f5}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:${GRID_GAP}px}.group{border:1px solid #111;page-break-inside:avoid}
-.gtitle{background:#ece8d4;padding:8px 10px;font-weight:900;letter-spacing:.6px;border-bottom:1px solid #111}
-table{width:100%;border-collapse:collapse;table-layout:fixed}col{width:33.3333%}
-th{background:#111;color:#fff;font-weight:800;letter-spacing:.3px;padding:8px 10px;border:1px solid #111;text-align:center}
-td{padding:10px;border:1px solid #222;text-align:center}tfoot td{font-weight:900;background:#faf9f5}
-.footer{margin-top:22px;font-size:12px;color:#555;text-align:right}
-.note{padding:12px 14px;border:1px dashed #999;background:#f7f7f7}
-</style></head><body>
-<h1>Expense Report — ${expYear}</h1>
-${emptyAll
-        ? `<div class="note">No transactions for the selected properties in ${expYear}.</div>`
-        : `<div class="summary">Grand Total: $${expResults.reduce((s, g) => s + g.total, 0).toLocaleString()}</div>
-     <div class="grid">
-       ${expResults.map(g => `
-         <div class="group">
-           <div class="gtitle">${g.property_name}</div>
-           <table><colgroup><col/><col/><col/></colgroup>
-             <thead><tr><th>Transaction Type</th><th>Amount</th><th>Date</th></tr></thead>
-             <tbody>
-               ${g.rows.length === 0
-            ? `<tr><td colspan="3" style="color:#c33;font-weight:600">No transactions</td></tr>`
-            : g.rows.map(r => `
-                     <tr><td>${r.type || '—'}</td><td>${r.amount == null ? '—' : `$${r.amount.toLocaleString()}`}</td><td>${r.date || '—'}</td></tr>
-                   `).join('')}
-             </tbody>
-             <tfoot><tr><td>Total</td><td>$${g.total.toLocaleString()}</td><td></td></tr></tfoot>
-           </table>
-         </div>
-       `).join('')}
-     </div>`}
-<div class="footer">Report generated ${stamp}</div>
-<script>window.onload=()=>{window.print();}</script>
-</body></html>`;
-    const w = window.open('', '_blank'); if (!w) return;
-    w.document.open(); w.document.write(html); w.document.close();
-  };
-
-  // ===== UI
+  /* ================= Render ================= */
   return (
-    <Box style={{ margin: '0 40px 28px 40px' }}>
-      <Title order={2} style={{ fontWeight: 900, letterSpacing: 1, fontSize: 28, color: '#111' }}>
-        REPORTS
-      </Title>
+    <Box
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0,
+        opacity: mounted ? 1 : 0,
+        transform: mounted ? 'translateY(0)' : 'translateY(6px)',
+        transition: 'opacity 420ms ease, transform 420ms ease',
+      }}
+    >
+      {/* Title row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 150 }}>
+        <h2
+          style={{
+            fontWeight: 900,
+            letterSpacing: 1,
+            fontSize: 40,
+            color: '#111',
+            margin: 0,
+            lineHeight: 1,
+          }}
+        >
+          REPORTS
+        </h2>
+      </div>
 
-      {/* ===== Row 1: RENT (button first, then picker, then year, then Clear icon) ===== */}
-      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', marginTop: 12, flexWrap: 'wrap', position: 'relative' }}>
+      {/* ===== Row 1: INCOME ===== */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'stretch',
+          marginTop: 0,
+          flexWrap: 'wrap',
+          position: 'relative',
+          overflow: 'visible',
+        }}
+      >
         <Button
           onClick={runRentReport}
           disabled={!ready(rentYear, rentSelected) || rentBusy}
           style={{
             ...btnBase,
+            width: 300,
             background: ready(rentYear, rentSelected) && !rentBusy ? '#fff' : '#f3f3f3',
             color: '#111',
           }}
@@ -354,55 +576,29 @@ ${emptyAll
           {rentBusy ? 'Generating…' : 'Income Report'}
         </Button>
 
-        {/* RENT picker */}
-        <div style={{ position: 'relative', display: 'inline-block' }}>
-          <button
-            onClick={() => setRentPickerOpen(o => !o)}
-            style={{ ...controlBase, padding: '0 14px', minWidth: PICKER_W, justifyContent: 'space-between' }}
-          >
-            <span>{propertyLabel(rentSelected)}</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▼</span>
-          </button>
-          {rentPickerOpen && (
-            <div
-              style={{
-                position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 10,
-                background: '#fff', border: '2px solid #111', minWidth: PICKER_W, maxHeight: 320, overflowY: 'auto',
-                boxShadow: '0 10px 24px rgba(0,0,0,0.12)', padding: 10, boxSizing: 'border-box'
-              }}
-              onMouseLeave={() => setRentPickerOpen(false)}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', borderBottom: '1px solid #eee', marginBottom: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={rentSelected === 'ALL'}
-                  onChange={(e) => setRentSelected(e.target.checked ? 'ALL' : [])}
-                />
-                <span style={{ fontWeight: 800 }}>ALL Properties</span>
-              </div>
-              {properties.map(p => (
-                <label key={p.property_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    disabled={rentSelected === 'ALL'}
-                    checked={rentSelected === 'ALL' ? true : (rentSelected as number[]).includes(p.property_id)}
-                    onChange={() => setRentSelected(prev => toggleOne(prev, p.property_id))}
-                  />
-                  <span>{p.property_name}</span>
-                </label>
-              ))}
-            </div>
-          )}
+        {/* RENT property multi (Universal look) */}
+        <div style={{ ...controlBase, minWidth: PICKER_W, padding: 0, justifyContent: 'stretch' }}>
+          <UniversalMultiDropdown
+            values={rentSelected}
+            options={propertyOptions}
+            placeholder="Properties"
+            includeAll
+            allLabel="ALL Properties"
+            onChange={setRentSelected}
+            ariaLabel="Income report properties"
+          />
         </div>
 
-        {/* RENT year */}
-        <input
-          type="number"
-          value={rentYear}
-          onChange={(e) => setRentYear(parseInt(e.target.value || String(currentYear()), 10))}
-          style={{ ...controlBase, width: YEAR_W, justifyContent: 'center', textAlign: 'center' }}
-          placeholder="Year"
-        />
+        {/* RENT year (UniversalDropdown) */}
+        <div style={{ ...controlBase, width: YEAR_W, padding: 0 }}>
+          <UniversalDropdown
+            value={String(rentYear)}
+            placeholder="Year"
+            options={yearOptions}
+            onChange={(val) => setRentYear(parseInt(val, 10))}
+            ariaLabel="Income report year"
+          />
+        </div>
 
         {rentResults.length > 0 && !rentBusy && (
           <>
@@ -411,33 +607,36 @@ ${emptyAll
           </>
         )}
 
-        {/* RENT Clear inputs icon (appears when dirty) */}
-        {rentDirty && (
-          <button
-            title="Clear inputs"
+        {(rentSelected === 'ALL' || (Array.isArray(rentSelected) && rentSelected.length > 0) || rentYear !== currentYear()) && (
+          <IconButton
+            icon="clear"
+            label="Clear inputs"
+            variant="danger"
+            size="lg"
             onClick={resetRentInputs}
-            style={{
-              ...controlBase,
-              width: 44,
-              justifyContent: 'center',
-              padding: 0,
-              borderColor: '#c33',
-              color: '#c33',
-              background: '#ffe9e9'
-            }}
-          >
-            <MdOutlineClear size={22} />
-          </button>
+            style={{ width: CONTROL_H, height: CONTROL_H }}
+          />
         )}
       </div>
 
-      {/* ===== Row 2: EXPENSE (button first, then picker, then year, then Clear icon) ===== */}
-      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', marginTop: 12, flexWrap: 'wrap', position: 'relative' }}>
+      {/* ===== Row 2: EXPENSE ===== */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'stretch',
+          marginTop: 20,
+          flexWrap: 'wrap',
+          position: 'relative',
+          overflow: 'visible',
+        }}
+      >
         <Button
           onClick={runExpenseReport}
           disabled={!ready(expYear, expSelected) || expBusy}
           style={{
             ...btnBase,
+            width: 300,
             background: ready(expYear, expSelected) && !expBusy ? '#fff' : '#f3f3f3',
             color: '#111',
           }}
@@ -445,56 +644,29 @@ ${emptyAll
           {expBusy ? 'Generating…' : 'Expense Report'}
         </Button>
 
-
-        {/* EXPENSE picker */}
-        <div style={{ position: 'relative', display: 'inline-block' }}>
-          <button
-            onClick={() => setExpPickerOpen(o => !o)}
-            style={{ ...controlBase, padding: '0 14px', minWidth: PICKER_W, justifyContent: 'space-between' }}
-          >
-            <span>{propertyLabel(expSelected)}</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▼</span>
-          </button>
-          {expPickerOpen && (
-            <div
-              style={{
-                position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 10,
-                background: '#fff', border: '2px solid #111', minWidth: PICKER_W, maxHeight: 320, overflowY: 'auto',
-                boxShadow: '0 10px 24px rgba(0,0,0,0.12)', padding: 10, boxSizing: 'border-box'
-              }}
-              onMouseLeave={() => setExpPickerOpen(false)}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', borderBottom: '1px solid #eee', marginBottom: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={expSelected === 'ALL'}
-                  onChange={(e) => setExpSelected(e.target.checked ? 'ALL' : [])}
-                />
-                <span style={{ fontWeight: 800 }}>ALL Properties</span>
-              </div>
-              {properties.map(p => (
-                <label key={p.property_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    disabled={expSelected === 'ALL'}
-                    checked={expSelected === 'ALL' ? true : (expSelected as number[]).includes(p.property_id)}
-                    onChange={() => setExpSelected(prev => toggleOne(prev, p.property_id))}
-                  />
-                  <span>{p.property_name}</span>
-                </label>
-              ))}
-            </div>
-          )}
+        {/* EXPENSE property multi (Universal look) */}
+        <div style={{ ...controlBase, minWidth: PICKER_W, padding: 0, justifyContent: 'stretch' }}>
+          <UniversalMultiDropdown
+            values={expSelected}
+            options={propertyOptions}
+            placeholder="Properties"
+            includeAll
+            allLabel="ALL Properties"
+            onChange={setExpSelected}
+            ariaLabel="Expense report properties"
+          />
         </div>
 
-        {/* EXPENSE year */}
-        <input
-          type="number"
-          value={expYear}
-          onChange={(e) => setExpYear(parseInt(e.target.value || String(currentYear()), 10))}
-          style={{ ...controlBase, width: YEAR_W, justifyContent: 'center', textAlign: 'center' }}
-          placeholder="Year"
-        />
+        {/* EXPENSE year (UniversalDropdown) */}
+        <div style={{ ...controlBase, width: YEAR_W, padding: 0 }}>
+          <UniversalDropdown
+            value={String(expYear)}
+            placeholder="Year"
+            options={yearOptions}
+            onChange={(val) => setExpYear(parseInt(val, 10))}
+            ariaLabel="Expense report year"
+          />
+        </div>
 
         {expResults.length > 0 && !expBusy && (
           <>
@@ -503,23 +675,15 @@ ${emptyAll
           </>
         )}
 
-        {/* EXPENSE Clear inputs icon (appears when dirty) */}
-        {expDirty && (
-          <button
-            title="Clear inputs"
+        {(expSelected === 'ALL' || (Array.isArray(expSelected) && expSelected.length > 0) || expYear !== currentYear()) && (
+          <IconButton
+            icon="clear"
+            label="Clear inputs"
+            variant="danger"
+            size="lg"
             onClick={resetExpInputs}
-            style={{
-              ...controlBase,
-              width: 44,
-              justifyContent: 'center',
-              padding: 0,
-              borderColor: '#c33',
-              color: '#c33',
-              background: '#ffe9e9'
-            }}
-          >
-            <MdOutlineClear size={22} />
-          </button>
+            style={{ width: CONTROL_H, height: CONTROL_H }}
+          />
         )}
       </div>
 
@@ -596,7 +760,7 @@ ${emptyAll
                       borderCollapse: 'collapse',
                       width: '100%',
                       tableLayout: 'fixed',
-                      ...tableShadow, // material table elevation
+                      ...tableShadow,
                     }}
                   >
                     <colgroup>
@@ -705,7 +869,7 @@ ${emptyAll
                       borderCollapse: 'collapse',
                       width: '100%',
                       tableLayout: 'fixed',
-                      ...tableShadow, // material table elevation
+                      ...tableShadow,
                     }}
                   >
                     <colgroup>
@@ -746,3 +910,7 @@ ${emptyAll
     </Box>
   );
 }
+
+/* ===== Exporters (stubs preserved) ===== */
+function exportRent() {}
+function exportExpense() {}

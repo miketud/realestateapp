@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { Table, Title } from '@mantine/core';
+import { Table } from '@mantine/core';
+import BannerMessage from './BannerMessage';
 
 const COL_WIDTH = 175;
 const FONT_SIZE = 16;
@@ -9,6 +10,7 @@ const TABLE_WIDTH = COL_WIDTH * MAX_COLS;
 // highlight styles (match Transaction/Rent tables)
 const HILITE_BG = '#eef5ff';
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
+const PLACEHOLDER = '#9aa1a8';
 
 // Base cell (1 unit)
 const cellStyle: React.CSSProperties = {
@@ -67,6 +69,199 @@ const inputCellStyle: React.CSSProperties = {
   outline: 'none',
   textAlign: 'center',
 };
+
+/* ────────────────── Universal Dropdown (fills cell, header placeholder, hover highlight) ────────────────── */
+type DropdownOption = { value: string; label?: string; disabled?: boolean };
+
+function UniversalDropdown({
+  value,
+  options,
+  placeholder,
+  onChange,
+  disabled,
+  maxMenuHeight = 220,
+  ariaLabel,
+}: {
+  value: string | null | undefined;
+  options: DropdownOption[];
+  placeholder: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  maxMenuHeight?: number;
+  ariaLabel?: string;
+}) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState<number>(-1);
+
+  const currentLabel = useMemo(() => {
+    const found = options.find(o => o.value === value);
+    return found?.label ?? found?.value ?? '';
+  }, [value, options]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const nextEnabled = (start: number, dir: 1 | -1) => {
+    if (!options.length) return -1;
+    let i = start;
+    for (let step = 0; step < options.length; step++) {
+      i = (i + dir + options.length) % options.length;
+      if (!options[i].disabled) return i;
+    }
+    return -1;
+  };
+
+  const openMenu = () => {
+    if (disabled) return;
+    setOpen(true);
+    const idx = options.findIndex(o => o.value === value && !o.disabled);
+    setActive(idx >= 0 ? idx : nextEnabled(-1, 1));
+  };
+
+  const commit = (idx: number) => {
+    const opt = options[idx];
+    if (!opt || opt.disabled) return;
+    onChange(opt.value);
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActive(i => nextEnabled(i, 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive(i => nextEnabled(i, -1));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setActive(nextEnabled(-1, 1));
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setActive(nextEnabled(0, -1));
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (active >= 0) commit(active);
+    }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%', height: '100%' }} onKeyDown={onKeyDown}>
+      {/* Button styled like your input cell */}
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel || placeholder}
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          background: 'transparent',
+          font: 'inherit',
+          textAlign: 'center',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          padding: 0,
+          outline: 'none',
+          color: value ? '#111' : PLACEHOLDER,
+        }}
+      >
+        {value ? (currentLabel || value) : placeholder}
+      </button>
+
+      {/* Menu */}
+      {open && (
+        <div
+          role="listbox"
+          aria-label={placeholder}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            width: '100%',
+            maxHeight: maxMenuHeight,
+            overflowY: 'auto',
+            background: '#fff',
+            border: '2px solid #111',
+            zIndex: 80,
+            boxShadow: '0 8px 18px rgba(0,0,0,0.2)',
+          }}
+        >
+          {/* Header (placeholder) */}
+          <div
+            style={{
+              padding: '10px 12px',
+              fontWeight: 800,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+              background: '#f8f8f8',
+              color: '#333',
+              cursor: 'default',
+              userSelect: 'none',
+            }}
+          >
+            {placeholder}
+          </div>
+
+          {/* Thin divider */}
+          <div style={{ height: 1, background: '#e5e5e5' }} />
+
+          {/* Options */}
+          {options.map((opt, idx) => {
+            const isActive = idx === active;
+            const isSelected = value === opt.value;
+            const isDisabled = !!opt.disabled;
+            return (
+              <div
+                key={`${opt.value}-${idx}`}
+                role="option"
+                aria-selected={isSelected}
+                onMouseEnter={() => setActive(idx)}
+                onMouseDown={(e) => e.preventDefault()} // keep focus
+                onClick={() => !isDisabled && commit(idx)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: isActive ? '#eef5ff' : '#fff',
+                  color: isDisabled ? '#999' : '#111',
+                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                  borderTop: '1px solid #f2f2f2',
+                }}
+              >
+                <span>{opt.label ?? opt.value}</span>
+                {isSelected ? <span aria-hidden>✓</span> : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export type LoanDetails = {
   loan_id: string;
@@ -307,12 +502,19 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
     const col = COLUMNS.find((c) => c.key === key);
 
     if (col?.type === 'number') value = value === '' ? null : Number(value);
-    if (col?.type === 'boolean') value =
-      value === '' || value === undefined ? null : (value === true || value === 'true' || value === 'Yes');
+    if (col?.type === 'boolean') {
+      // Accept true/false or "Yes"/"No"
+      if (typeof value === 'string') {
+        value = value === 'Yes' || value === 'true';
+      } else {
+        value = !!value;
+      }
+    }
     if (col?.type === 'date') value = value === '' ? null : String(value).slice(0, 10);
 
     try {
       if (key === 'loan_id' && !isLoanIdReady) {
+        // Create new loan record on first-time loan_id set
         let pid = data.purchase_id;
         if (!pid || pid === 0) {
           pid = await getPurchaseIdByPropertyId(data.property_id) as any;
@@ -338,6 +540,7 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
           setSaveError(`Failed to create loan: ${created?.error || res.statusText}`);
         }
       } else if (key === 'loan_id' && isLoanIdReady) {
+        // Update loan_id when record already exists
         if (!value || String(value).trim() === '') {
           setSaveError('Loan Number cannot be empty. Use admin tools to delete if needed.');
           setSaving(false); setEditingKey(null); return;
@@ -357,6 +560,7 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
           setSaveError(`Failed to update loan number: ${updated?.error || res.statusText}`);
         }
       } else if (isLoanIdReady && key !== 'loan_id') {
+        // Patch any other field once a loan record exists
         const res = await fetch(`/api/loan_details/${String(data.loan_id)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -409,6 +613,18 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
 
   return (
     <div style={{ marginTop: 16, width: TABLE_WIDTH }}>
+      {/* Error banner ABOVE the whole component (does not change title/table spacing) */}
+      {saveError && (
+        <div style={{ width: TABLE_WIDTH, margin: '0 auto 24px' }}>
+          <BannerMessage
+            message={saveError}
+            type="error"
+            autoCloseMs={5000}
+            onDismiss={() => setSaveError(null)}
+          />
+        </div>
+      )}
+
       {/* LOAN DETAILS LABEL BOX */}
       <div
         style={{
@@ -416,9 +632,9 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
           boxSizing: 'border-box',
           margin: '0 auto 0',
           padding: '12px 16px',
-          background: '#b6b6b6ff',           // soft yellow
-          border: '4px solid #000',        // thick black border
-          borderBottom: 'none',            // attach to table
+          background: '#b6b6b6ff',
+          border: '4px solid #000',
+          borderBottom: 'none',
           textAlign: 'center',
           fontWeight: 900,
           fontSize: 40,
@@ -428,25 +644,6 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
         LOAN DETAILS
       </div>
 
-      {/* Error banner */}
-      {saveError && (
-        <div
-          style={{
-            marginBottom: 16,
-            padding: '10px 18px',
-            background: '#ffeded',
-            color: '#a13d3d',
-            border: '1.5px solid #e57e7e',
-            borderRadius: 6,
-            fontWeight: 600,
-            fontSize: 16,
-            letterSpacing: 0.5,
-          }}
-        >
-          {saveError}
-        </div>
-      )}
-
       <Table
         striped
         highlightOnHover
@@ -454,8 +651,8 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
         style={{
           fontSize: FONT_SIZE,
           borderCollapse: 'collapse',
-          border: '4px solid #000',          // match label border
-          boxShadow: '0 12px 28px rgba(0,0,0,0.3)', // stronger drop shadow
+          border: '4px solid #000',
+          boxShadow: '0 12px 28px rgba(0,0,0,0.3)',
           background: '#fff',
           width: TABLE_WIDTH,
           textAlign: 'center',
@@ -485,6 +682,7 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                   const v = (data as any)?.[col.key];
                   const isEditing = editingKey === col.key;
 
+                  // Loan Number (creates or updates record)
                   if (col.key === 'loan_id') {
                     return (
                       <td
@@ -501,7 +699,10 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                             disabled={saving}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => handleSave(col.key)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSave(col.key);
+                              if (e.key === 'Escape') setEditingKey(null);
+                            }}
                           />
                         ) : (
                           <span style={{ color: !saving ? '#000' : '#bbb', cursor: 'default' }}>
@@ -512,6 +713,7 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                     );
                   }
 
+                  // Gate all other fields until a loan record exists
                   if (!isLoanIdReady) {
                     return (
                       <td key={`v-${sIdx}-${ci}`} style={disabledCellStyle}>
@@ -520,6 +722,7 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                     );
                   }
 
+                  // Read view
                   if (!isEditing) {
                     return (
                       <td
@@ -546,64 +749,54 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                     );
                   }
 
-                  // Loan Status: dropdown
+                  // Edit views using UniversalDropdown where requested
+
+                  // Loan Status dropdown
                   if (col.key === 'loan_status') {
+                    const STATUS_OPTS: DropdownOption[] = [
+                      { value: '', label: '—' },
+                      { value: 'Active' },
+                      { value: 'Paid' },
+                      { value: 'Pending' },
+                    ];
                     return (
                       <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
-                        <select
+                        <UniversalDropdown
                           value={editValue ?? ''}
-                          style={{
-                            ...inputCellStyle,
-                            textAlign: 'center',
-                          }}
-                          autoFocus
+                          placeholder="Loan Status"
+                          options={STATUS_OPTS}
+                          onChange={(val) => handleSave(col.key, val)}
+                          ariaLabel="Loan Status"
                           disabled={saving}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={() => handleSave(col.key)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSave(col.key);
-                            if (e.key === 'Escape') setEditingKey(null);
-                          }}
-                        >
-                          <option value="">—</option>
-                          <option value="Active">Active</option>
-                          <option value="Paid">Paid</option>
-                          <option value="Pending">Pending</option>
-                        </select>
+                        />
                       </td>
                     );
                   }
 
-                  // Loan Type: dropdown
+                  // Loan Type dropdown
                   if (col.key === 'loan_type') {
+                    const TYPE_OPTS: DropdownOption[] = [
+                      { value: '', label: '—' },
+                      { value: 'Conventional' },
+                      { value: 'Hard Money' },
+                      { value: 'Adjustable Rate Mortgage' },
+                      { value: 'Fixed Rate Mortgage' },
+                    ];
                     return (
                       <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
-                        <select
+                        <UniversalDropdown
                           value={editValue ?? ''}
-                          style={{
-                            ...inputCellStyle,
-                            textAlign: 'center',
-                          }}
-                          autoFocus
+                          placeholder="Loan Type"
+                          options={TYPE_OPTS}
+                          onChange={(val) => handleSave(col.key, val)}
+                          ariaLabel="Loan Type"
                           disabled={saving}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={() => handleSave(col.key)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSave(col.key);
-                            if (e.key === 'Escape') setEditingKey(null);
-                          }}
-                        >
-                          <option value="">—</option>
-                          <option value="Conventional">Conventional</option>
-                          <option value="Hard Money">Hard Money</option>
-                          <option value="Adjustable Rate Mortgage">Adjustable Rate Mortgage</option>
-                          <option value="Fixed Rate Mortgage">Fixed Rate Mortgage</option>
-                        </select>
+                        />
                       </td>
                     );
                   }
 
-                  // Lender: minimal autocomplete (local; commit on Enter/click only)
+                  // Lender autocomplete
                   if (col.key === 'lender') {
                     return (
                       <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
@@ -617,24 +810,27 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                     );
                   }
 
+                  // Boolean fields via UniversalDropdown (Yes/No)
                   if (col.type === 'boolean') {
+                    const BOOL_OPTS: DropdownOption[] = [
+                      { value: 'Yes' },
+                      { value: 'No' },
+                    ];
                     return (
                       <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
-                        <select
+                        <UniversalDropdown
                           value={editValue === true || editValue === 'Yes' ? 'Yes' : 'No'}
-                          style={inputCellStyle}
-                          onChange={(e) => setEditValue(e.target.value === 'Yes')}
-                          onBlur={() => handleSave(col.key)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
+                          placeholder={col.label}
+                          options={BOOL_OPTS}
+                          onChange={(val) => handleSave(col.key, val === 'Yes')}
+                          ariaLabel={col.label}
                           disabled={saving}
-                        >
-                          <option value="Yes">Yes</option>
-                          <option value="No">No</option>
-                        </select>
+                        />
                       </td>
                     );
                   }
 
+                  // Date fields
                   if (col.type === 'date') {
                     return (
                       <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
@@ -646,12 +842,16 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                           disabled={saving}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={() => handleSave(col.key)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSave(col.key);
+                            if (e.key === 'Escape') setEditingKey(null);
+                          }}
                         />
                       </td>
                     );
                   }
 
+                  // Number/Text generic
                   return (
                     <td key={`v-${sIdx}-${ci}`} style={{ ...cellStyle, ...focusShadow(true) }}>
                       <input
@@ -662,7 +862,10 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                         disabled={saving}
                         onChange={(e) => setEditValue(e.target.value)}
                         onBlur={() => handleSave(col.key)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleSave(col.key); if (e.key === 'Escape') setEditingKey(null); }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSave(col.key);
+                          if (e.key === 'Escape') setEditingKey(null);
+                        }}
                       />
                     </td>
                   );
@@ -711,11 +914,18 @@ export default function LoanDetailsTable({ property_id }: { property_id: number 
                   autoFocus
                   onChange={(e) => setEditValue(e.target.value)}
                   onBlur={() => handleSave('notes')}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSave('notes'); if (e.key === 'Escape') setEditingKey(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSave('notes');
+                    if (e.key === 'Escape') setEditingKey(null);
+                  }}
                   disabled={saving}
                 />
               ) : (
-                (data?.notes && String(data.notes).trim() !== '') ? <span>{String(data.notes)}</span> : <span style={{ color: '#bbb' }}>—</span>
+                (data?.notes && String(data.notes).trim() !== '') ? (
+                  <span>{String(data.notes)}</span>
+                ) : (
+                  <span style={{ color: '#bbb' }}>—</span>
+                )
               )}
             </td>
           </tr>

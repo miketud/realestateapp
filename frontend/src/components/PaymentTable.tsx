@@ -113,7 +113,7 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
     const payload = {
       property_id,
       year,
-      month: months[row],
+      month: months[row], // keep original cased month for API
       payment_amount: col === 'amount' ? parseMoney(editValue) : parseMoney(yearData.amounts[row]),
       check_number: col === 'check' ? parseIntMaybe(editValue) : parseIntMaybe(yearData.checks[row]),
       notes: col === 'notes' ? (editValue || null) : (yearData.notes[row] || null),
@@ -247,10 +247,10 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
           boxSizing: 'border-box',
           margin: '0 auto 0',
           padding: '12px 16px',
-          background: '#b6b6b6ff',       // soft yellow
-          border: '4px solid #000',    // thick black border
-          borderTop: 'none',           // attaches to navigation bar
-          borderBottom: 'none',        // attaches to table
+          background: '#b6b6b6ff',
+          border: '4px solid #000',
+          borderTop: 'none',
+          borderBottom: 'none',
           textAlign: 'center',
           fontWeight: 900,
           fontSize: 40,
@@ -288,8 +288,8 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
           fontSize: 16,
           fontFamily: 'inherit',
           borderCollapse: 'collapse',
-          border: '4px solid #000',           // aligns with title/nav
-          boxShadow: '0 12px 28px rgba(0,0,0,0.3)', // strong shadow
+          border: '4px solid #000',
+          boxShadow: '0 12px 28px rgba(0,0,0,0.3)',
           marginBottom: 32,
           background: '#fff',
           tableLayout: 'fixed',
@@ -313,8 +313,30 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
             const rowStyle = rowFocused ? { outline: '2px solid #325dae', background: HILITE_BG } : {};
             return (
               <tr key={month} style={rowStyle}>
-                <td style={tdStyle}>{year}</td>
-                <td style={tdStyle}>{month}</td>
+                {/* Year cell — bold, larger font, light gray background */}
+                <td
+                  style={{
+                    ...tdStyle,
+                    fontWeight: 800,
+                    fontSize: 18,
+                    color: '#ffffffff',
+                    background: '#000000ff',
+                  }}
+                >
+                  {year}
+                </td>
+
+                {/* Month cell — bold, larger font, light gray background, UPPERCASE */}
+                <td
+                  style={{
+                    ...tdStyle,
+                    fontWeight: 800,
+                    fontSize: 18,
+                    background: '#b6b6b6ff',
+                  }}
+                >
+                  {month.toUpperCase()}
+                </td>
 
                 {/* Amount */}
                 <td

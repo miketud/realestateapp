@@ -7,6 +7,8 @@ import RentRollTable from './RentRollTable';
 import TransactionLog, { type TransactionRow } from './TransactionLog';
 import PurchaseDetailsTable from './PurchaseDetailsTable';
 import PaymentTable from './PaymentTable';
+import BannerMessage from './BannerMessage';
+
 
 // --- Grid / sizing ---
 const COL_WIDTH = 175;
@@ -27,6 +29,7 @@ const API = `${API_BASE}/api`;
 // --- Visual primitives ---
 const HILITE_BG = '#eef5ff';
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
+const PLACEHOLDER = '#9aa1a8';
 
 const inputCellStyle: React.CSSProperties = {
   width: '100%',
@@ -82,6 +85,10 @@ const STATUS_COLORS: Record<string, string> = {
   Financed: '#3e9c57ff',
 };
 
+// Dropdown options used by Type/Status editors
+const TYPE_OPTIONS = ['Commercial', 'Residential', 'Land'] as const;
+const STATUS_OPTIONS = ['Vacant', 'Pending', 'Leased', 'Subleased', 'Financed'] as const;
+
 type Property = {
   property_id: number;
   property_name: string;
@@ -134,7 +141,7 @@ function ContactSearchPins({ property_id, width }: { property_id: number; width:
     const d = clamp10(toDigits(digits));
     if (d.length !== 10) return d;
     return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-  };
+    };
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Contact[]>([]);
@@ -523,6 +530,194 @@ function OwnerAutocompleteSimple({
   );
 }
 
+/* === UniversalDropdown (fills cell width, header placeholder, hover highlight) === */
+type DropdownOption = { value: string; label?: string; disabled?: boolean };
+
+function UniversalDropdown({
+  value,
+  options,
+  placeholder,
+  onChange,
+  disabled,
+  maxMenuHeight = 220,
+  ariaLabel,
+}: {
+  value: string | null | undefined;
+  options: DropdownOption[];
+  placeholder: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  maxMenuHeight?: number;
+  ariaLabel?: string;
+}) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState<number>(-1);
+
+  const currentLabel = useMemo(() => {
+    const found = options.find(o => o.value === value);
+    return found?.label ?? found?.value ?? '';
+  }, [value, options]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const nextEnabled = (start: number, dir: 1 | -1) => {
+    if (!options.length) return -1;
+    let i = start;
+    for (let step = 0; step < options.length; step++) {
+      i = (i + dir + options.length) % options.length;
+      if (!options[i].disabled) return i;
+    }
+    return -1;
+  };
+
+  const openMenu = () => {
+    if (disabled) return;
+    setOpen(true);
+    const idx = options.findIndex(o => o.value === value && !o.disabled);
+    setActive(idx >= 0 ? idx : nextEnabled(-1, 1));
+  };
+
+  const commit = (idx: number) => {
+    const opt = options[idx];
+    if (!opt || opt.disabled) return;
+    onChange(opt.value);
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActive(i => nextEnabled(i, 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive(i => nextEnabled(i, -1));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setActive(nextEnabled(-1, 1));
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setActive(nextEnabled(0, -1));
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (active >= 0) commit(active);
+    }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%', height: '100%' }} onKeyDown={onKeyDown}>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel || placeholder}
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          background: 'transparent',
+          font: 'inherit',
+          textAlign: 'center',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          padding: 0,
+          outline: 'none',
+          color: value ? '#111' : PLACEHOLDER,
+        }}
+      >
+        {value ? (currentLabel || value) : placeholder}
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label={placeholder}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            width: '100%',
+            maxHeight: maxMenuHeight,
+            overflowY: 'auto',
+            background: '#fff',
+            border: '2px solid #111',
+            zIndex: 80,
+            boxShadow: '0 8px 18px rgba(0,0,0,0.2)',
+          }}
+        >
+          <div
+            style={{
+              padding: '10px 12px',
+              fontWeight: 800,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+              background: '#f8f8f8',
+              color: '#333',
+              cursor: 'default',
+              userSelect: 'none',
+            }}
+          >
+            {placeholder}
+          </div>
+
+          <div style={{ height: 1, background: '#e5e5e5' }} />
+
+          {options.map((opt, idx) => {
+            const isActive = idx === active;
+            const isSelected = value === opt.value;
+            const isDisabled = !!opt.disabled;
+            return (
+              <div
+                key={`${opt.value}-${idx}`}
+                role="option"
+                aria-selected={isSelected}
+                onMouseEnter={() => setActive(idx)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => !isDisabled && commit(idx)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: isActive ? '#eef5ff' : '#fff',
+                  color: isDisabled ? '#999' : '#111',
+                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                  borderTop: '1px solid #f2f2f2',
+                }}
+              >
+                <span>{opt.label ?? opt.value}</span>
+                {isSelected ? <span aria-hidden>✓</span> : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 /* ============================================
    Property View
@@ -539,8 +734,6 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
   const [editValue, setEditValue] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [showSaveError, setShowSaveError] = useState(false);
-  const saveErrorTimers = useRef<number[]>([]);
 
   // separate saving flag for the toggle
   const [togglingIncome, setTogglingIncome] = useState(false);
@@ -599,6 +792,19 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
       .finally(() => setLoading(false));
   }, [property_id]);
 
+  useEffect(() => {
+  if (!property) return;
+  const detail = {
+    id: property.property_id,
+    address: property.address,
+    city: property.city ?? '',
+    state: property.state ?? '',
+    zipcode: property.zipcode ?? '',
+    zoom: 16, // tweak if you want closer/farther
+  };
+  window.dispatchEvent(new CustomEvent('pm:focus', { detail }));
+}, [property]);
+
   function handleCellClick(key: keyof Property) {
     if (!loading && property) {
       setEditingKey(key);
@@ -610,36 +816,6 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
       );
     }
   }
-
-  useEffect(() => {
-    // clear any previous timers whenever the message changes or unmounts
-    saveErrorTimers.current.forEach(t => window.clearTimeout(t));
-    saveErrorTimers.current = [];
-
-    if (saveError) {
-      setShowSaveError(true); // fade in immediately
-      // after 5s, start fade out
-      const t1 = window.setTimeout(() => setShowSaveError(false), 5000);
-      // after fade-out (300ms), remove message
-      const t2 = window.setTimeout(() => setSaveError(null), 5300);
-      saveErrorTimers.current.push(t1, t2);
-    }
-
-    return () => {
-      saveErrorTimers.current.forEach(t => window.clearTimeout(t));
-      saveErrorTimers.current = [];
-    };
-  }, [saveError]);
-
-  const dismissSaveError = () => {
-    // stop any running timers
-    saveErrorTimers.current.forEach(t => window.clearTimeout(t));
-    saveErrorTimers.current = [];
-    // fade out, then clear
-    setShowSaveError(false);
-    const t = window.setTimeout(() => setSaveError(null), 300);
-    saveErrorTimers.current.push(t);
-  };
 
   async function handleSave(key: keyof Property, customValue?: any) {
     if (!property) return;
@@ -742,23 +918,14 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
     if (k === 'type' && isEditing) {
       return (
         <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
-          <select
-            value={editValue ?? ''}
-            style={{ ...inputCellStyle, textAlign: 'center' }}
-            autoFocus
+          <UniversalDropdown
+            value={editValue}
+            placeholder="Type"
+            options={[{ value: '', label: '—' }, ...TYPE_OPTIONS.map(t => ({ value: t }))]}
+            onChange={(val) => handleSave(k, val)}
+            ariaLabel="Type"
             disabled={saving}
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={() => handleSave(k)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave(k);
-              if (e.key === 'Escape') setEditingKey(null);
-            }}
-          >
-            <option value="">—</option>
-            <option value="Commercial">Commercial</option>
-            <option value="Residential">Residential</option>
-            <option value="Land">Land</option>
-          </select>
+          />
         </td>
       );
     }
@@ -779,28 +946,16 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
     }
 
     if (k === 'status' && isEditing) {
-      const statusOptions = ['Vacant', 'Pending', 'Leased', 'Subleased', 'Financed'];
       return (
         <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
-          <select
-            value={editValue ?? ''}
-            style={{ ...inputCellStyle, textAlign: 'center' }}
-            autoFocus
+          <UniversalDropdown
+            value={editValue}
+            placeholder="Status"
+            options={[{ value: '', label: '—' }, ...STATUS_OPTIONS.map(s => ({ value: s }))]}
+            onChange={(val) => handleSave(k, val)}
+            ariaLabel="Status"
             disabled={saving}
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={() => handleSave(k)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave(k);
-              if (e.key === 'Escape') setEditingKey(null);
-            }}
-          >
-            <option value="">—</option>
-            {statusOptions.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
+          />
         </td>
       );
     }
@@ -966,14 +1121,15 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
           top: 0,
           zIndex: 1000,
           width: APP_WIDTH,
+          boxSizing: 'border-box',
           margin: '12px auto 20px',
-          padding: '40px 40px',
+          padding: '60px 60px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           textAlign: 'center',
-          background: '#384758ff',
-          border: '4px solid #111',
+          background: '#ffffffff',
+          border: '2px solid #111',
           borderRadius: 12,
           boxShadow: '0 12px 28px rgba(0,0,0,0.3)',
         }}
@@ -1027,58 +1183,21 @@ export default function PropertyView({ property_id, onBack, refreshProperties }:
           </Button>
         )}
 
-        <div style={{ fontSize: 60, fontWeight: 800, letterSpacing: 1, color: '#ffffffff', lineHeight: 1.2, textTransform: 'uppercase' }}>
+        <div style={{ fontSize: 80, fontWeight: 800, letterSpacing: 1, color: '#000000ff', lineHeight: 1.2, textTransform: 'uppercase' }}>
           {property?.property_name || 'Property'}
         </div>
       </Box>
 
       {/* ===== Centered page container aligned to header width ===== */}
       <Box style={{ width: APP_WIDTH, margin: '0 auto 40px' }}>
-        {/* Error banner */}
+        {/* Error banner (BannerMessage owns auto-close) */}
         {saveError !== null && (
-          <div
-            role="alert"
-            style={{
-              width: '100%',
-              marginBottom: 16,
-              padding: '10px 18px',
-              background: '#ffeded',
-              color: '#a13d3d',
-              border: '1.5px solid #e57e7e',
-              borderRadius: 6,
-              fontWeight: 600,
-              fontSize: 16,
-              letterSpacing: 0.5,
-              boxSizing: 'border-box',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              opacity: showSaveError ? 1 : 0,
-              transition: 'opacity 300ms ease',
-            }}
-          >
-            <span style={{ paddingRight: 12 }}>{saveError}</span>
-            <button
-              aria-label="Dismiss error"
-              onClick={dismissSaveError}
-              style={{
-                marginLeft: 12,
-                flex: '0 0 auto',
-                border: '2px solid #a13d3d',
-                background: '#fff',
-                color: '#a13d3d',
-                fontWeight: 900,
-                fontSize: 16,
-                lineHeight: 1,
-                borderRadius: 6,
-                padding: '4px 8px',
-                cursor: 'pointer',
-              }}
-              title="Dismiss"
-            >
-              ×
-            </button>
-          </div>
+          <BannerMessage
+            message={saveError}
+            type="error"
+            autoCloseMs={5000}
+            onDismiss={() => setSaveError(null)}
+          />
         )}
 
         {loading ? (

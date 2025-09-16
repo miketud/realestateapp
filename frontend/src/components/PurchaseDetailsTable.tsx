@@ -1,17 +1,15 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { Table, Title, Loader, Center } from '@mantine/core';
+import { Table, Loader, Center } from '@mantine/core';
 import LoanDetailsTable from './LoanDetailsTable';
+import BannerMessage from './BannerMessage';
 
-// ---------- Layout constants ----------
-const MAIN_COL_WIDTH = 175; // 1 unit
+/* ────────────────── Layout / visuals ────────────────── */
+const MAIN_COL_WIDTH = 175;
 const BASE_FONT_SIZE = 16;
 const MAX_COLS = 9;
 const TABLE_WIDTH = MAIN_COL_WIDTH * MAX_COLS;
-const HEADER_BG = '#000';
-const HEADER_FG = '#fff';
-
-// --- Visual primitives to match Rent/Transaction ---
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
+const PLACEHOLDER = '#9aa1a8';
 
 const cellStyle: React.CSSProperties = {
   border: '1px solid #222',
@@ -25,7 +23,6 @@ const cellStyle: React.CSSProperties = {
   wordBreak: 'break-word',
 };
 
-// Borderless inline input
 const inputCellStyle: React.CSSProperties = {
   width: '100%',
   fontSize: BASE_FONT_SIZE,
@@ -69,10 +66,8 @@ const COLUMNS: Column[] = [
   { key: 'notes', label: 'Notes', type: 'text' },
 ];
 
-// main table excludes notes; we render notes on its own row
-const MAIN_COLUMNS: Column[] = COLUMNS.filter(c => c.key !== 'notes');
+const MAIN_COLUMNS: Column[] = COLUMNS.filter((c) => c.key !== 'notes');
 
-// lock the grid to 9 × 175px
 function ColsPx() {
   return (
     <colgroup>
@@ -83,13 +78,200 @@ function ColsPx() {
   );
 }
 
-/* ──────────────────────────────────────────────────────────────────────────────
-   Minimal local-state autocomplete for Buyer/Seller (fast, no lag)
-   - Filters preloaded names while typing
-   - Local text state while editing (prevents parent re-render lag)
-   - Commit on Enter or clicking a suggestion; free-form allowed
-   - No blur commit (mirrors your Dashboard behavior)
-────────────────────────────────────────────────────────────────────────────── */
+/* ────────────────── Universal Dropdown (fills cell, header placeholder, hover highlight) ────────────────── */
+type DropdownOption = { value: string; label?: string; disabled?: boolean };
+
+function UniversalDropdown({
+  value,
+  options,
+  placeholder,
+  onChange,
+  disabled,
+  maxMenuHeight = 220,
+  ariaLabel,
+}: {
+  value: string | null | undefined;
+  options: DropdownOption[];
+  placeholder: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  maxMenuHeight?: number;
+  ariaLabel?: string;
+}) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState<number>(-1);
+
+  const currentLabel = useMemo(() => {
+    const found = options.find(o => o.value === value);
+    return found?.label ?? found?.value ?? '';
+  }, [value, options]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const nextEnabled = (start: number, dir: 1 | -1) => {
+    if (!options.length) return -1;
+    let i = start;
+    for (let step = 0; step < options.length; step++) {
+      i = (i + dir + options.length) % options.length;
+      if (!options[i].disabled) return i;
+    }
+    return -1;
+  };
+
+  const openMenu = () => {
+    if (disabled) return;
+    setOpen(true);
+    const idx = options.findIndex(o => o.value === value && !o.disabled);
+    setActive(idx >= 0 ? idx : nextEnabled(-1, 1));
+  };
+
+  const commit = (idx: number) => {
+    const opt = options[idx];
+    if (!opt || opt.disabled) return;
+    onChange(opt.value);
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActive(i => nextEnabled(i, 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive(i => nextEnabled(i, -1));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setActive(nextEnabled(-1, 1));
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setActive(nextEnabled(0, -1));
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (active >= 0) commit(active);
+    }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%', height: '100%' }} onKeyDown={onKeyDown}>
+      {/* Button styled like an input cell */}
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel || placeholder}
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          background: 'transparent',
+          font: 'inherit',
+          textAlign: 'center',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          padding: 0,
+          outline: 'none',
+          color: value ? '#111' : PLACEHOLDER,
+        }}
+      >
+        {value ? (currentLabel || value) : placeholder}
+      </button>
+
+      {/* Menu */}
+      {open && (
+        <div
+          role="listbox"
+          aria-label={placeholder}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            width: '100%',                // matches cell width
+            maxHeight: maxMenuHeight,
+            overflowY: 'auto',
+            background: '#fff',
+            border: '2px solid #111',
+            zIndex: 80,
+            boxShadow: '0 8px 18px rgba(0,0,0,0.2)',
+          }}
+        >
+          {/* Header (placeholder) */}
+          <div
+            style={{
+              padding: '10px 12px',
+              fontWeight: 800,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+              background: '#f8f8f8',
+              color: '#333',
+              cursor: 'default',
+              userSelect: 'none',
+            }}
+          >
+            {placeholder}
+          </div>
+
+          {/* Thin divider */}
+          <div style={{ height: 1, background: '#e5e5e5' }} />
+
+          {/* Options */}
+          {options.map((opt, idx) => {
+            const isActive = idx === active;
+            const isSelected = value === opt.value;
+            const isDisabled = !!opt.disabled;
+            return (
+              <div
+                key={`${opt.value}-${idx}`}
+                role="option"
+                aria-selected={isSelected}
+                onMouseEnter={() => setActive(idx)}
+                onMouseDown={(e) => e.preventDefault()} // keep focus
+                onClick={() => !isDisabled && commit(idx)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: isActive ? '#eef5ff' : '#fff',
+                  color: isDisabled ? '#999' : '#111',
+                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                  borderTop: '1px solid #f2f2f2',
+                }}
+              >
+                <span>{opt.label ?? opt.value}</span>
+                {isSelected ? <span aria-hidden>✓</span> : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ────────────────── Inline, fast autocomplete for Buyer/Seller ────────────────── */
 function NameAutocompleteSimple({
   initialValue,
   suggestions,
@@ -110,7 +292,7 @@ function NameAutocompleteSimple({
     const q = text.trim().toLowerCase();
     if (!q) return [];
     return Array.from(new Set(suggestions))
-      .filter(n => n.toLowerCase().includes(q))
+      .filter((n) => n.toLowerCase().includes(q))
       .slice(0, 8);
   }, [text, suggestions]);
 
@@ -147,10 +329,10 @@ function NameAutocompleteSimple({
             else commit(text);
           } else if (e.key === 'ArrowDown' && list.length) {
             e.preventDefault();
-            setActive(i => Math.min(i + 1, list.length - 1));
+            setActive((i) => Math.min(i + 1, list.length - 1));
           } else if (e.key === 'ArrowUp' && list.length) {
             e.preventDefault();
-            setActive(i => Math.max(i - 1, 0));
+            setActive((i) => Math.max(i - 1, 0));
           } else if (e.key === 'Escape') {
             setOpen(false);
           }
@@ -175,7 +357,7 @@ function NameAutocompleteSimple({
           {list.map((name, idx) => (
             <div
               key={name + idx}
-              onMouseDown={(e) => e.preventDefault()} // keep input from blurring
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => commit(name)}
               style={{
                 padding: '10px 12px',
@@ -192,6 +374,7 @@ function NameAutocompleteSimple({
   );
 }
 
+/* ───────────────────────────── Component ───────────────────────────── */
 export default function PurchaseDetailsTable({ property_id }: { property_id: number }) {
   const [data, setData] = useState<PurchaseDetails | null>(null);
   const [editKey, setEditKey] = useState<keyof PurchaseDetails | null>(null);
@@ -203,19 +386,19 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
   const [propertyCreatedAt, setPropertyCreatedAt] = useState<string | null>(null);
   const creatingRef = useRef(false);
 
-  // 🔹 Preload contact names once for Buyer/Seller autocomplete
+  // preload contact names once for Buyer/Seller autocomplete
   const [contactNames, setContactNames] = useState<string[]>([]);
   useEffect(() => {
     fetch('/api/contacts')
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((arr: any[]) => {
-        const names = Array.isArray(arr) ? arr.map(c => String(c?.name || '')).filter(Boolean) : [];
+        const names = Array.isArray(arr) ? arr.map((c) => String(c?.name || '')).filter(Boolean) : [];
         setContactNames(Array.from(new Set(names)));
       })
       .catch(() => void 0);
   }, []);
 
-  // Load property.created_at for seeding closing_date
+  // property.created_at (seed closing_date if missing)
   useEffect(() => {
     if (!property_id) return;
     fetch(`/api/properties/${property_id}`)
@@ -224,10 +407,10 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
         if (j?.created_at) setPropertyCreatedAt(j.created_at);
         setSaveError(null);
       })
-      .catch(() => { });
+      .catch(() => {});
   }, [property_id]);
 
-  // Load purchase details
+  // load purchase details
   useEffect(() => {
     setLoading(true);
     fetch(`/api/purchase_details?property_id=${property_id}`)
@@ -247,7 +430,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
       .finally(() => setLoading(false));
   }, [property_id]);
 
-  // Auto-create if missing (seed closing_date)
+  // auto-create record if missing (seed closing_date)
   useEffect(() => {
     if (loading || data || !propertyCreatedAt) return;
     if (creatingRef.current) return;
@@ -289,7 +472,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
       });
   }, [loading, data, property_id, propertyCreatedAt]);
 
-  // Editing
+  /* ───────────── Editing ───────────── */
   function startEdit(key: keyof PurchaseDetails) {
     if (!data || saving) return;
     setSaveError(null);
@@ -346,6 +529,18 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
 
   return (
     <div style={{ margin: '56px 0 38px 0' }}>
+      {/* Error banner ABOVE the whole component */}
+      {saveError && (
+        <div style={{ width: TABLE_WIDTH, margin: '0 auto 24px' }}>
+          <BannerMessage
+            message={saveError}
+            type="error"
+            autoCloseMs={5000}
+            onDismiss={() => setSaveError(null)}
+          />
+        </div>
+      )}
+
       {/* PURCHASE DETAILS LABEL BOX */}
       <div
         style={{
@@ -353,9 +548,9 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
           boxSizing: 'border-box',
           margin: '0 auto 0',
           padding: '12px 16px',
-          background: '#b6b6b6ff',           // soft yellow
-          border: '4px solid #000',        // thick border
-          borderBottom: 'none',            // attach to table
+          background: '#b6b6b6ff',
+          border: '4px solid #000',
+          borderBottom: 'none',
           textAlign: 'center',
           fontWeight: 900,
           fontSize: 40,
@@ -365,27 +560,8 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
         PURCHASE DETAILS
       </div>
 
-      {/* Error banner (like RentRollTable) */}
-      {saveError && (
-        <div
-          style={{
-            width: TABLE_WIDTH,
-            marginBottom: 16,
-            padding: '10px 18px',
-            background: '#ffeded',
-            color: '#a13d3d',
-            border: '1.5px solid #e57e7e',
-            borderRadius: 6,
-            fontWeight: 600,
-            fontSize: 16,
-            letterSpacing: 0.5,
-          }}
-        >
-          {saveError}
-        </div>
-      )}
-
-      <div style={{ width: TABLE_WIDTH }}>
+      {/* Table stays flush with the title */}
+      <div style={{ width: TABLE_WIDTH, margin: '0 auto' }}>
         <Table
           striped
           highlightOnHover
@@ -393,8 +569,8 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
           style={{
             fontSize: BASE_FONT_SIZE,
             borderCollapse: 'collapse',
-            border: '4px solid #000',       // thick black border, aligned with label
-            boxShadow: '0 12px 28px rgba(0,0,0,0.3)', // stronger drop shadow
+            border: '4px solid #000',
+            boxShadow: '0 12px 28px rgba(0,0,0,0.3)',
             background: '#fff',
             width: TABLE_WIDTH,
             textAlign: 'center',
@@ -451,74 +627,66 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                       style={baseTdStyle}
                       onClick={() => startEdit(col.key)}
                     >
-                      {(v === null || v === undefined || String(v).trim() === '') ? (
-                        <span style={{ color: '#bbb' }}>—</span>
-                      ) : col.type === 'date' ? (
-                        String(v).slice(0, 10)
-                      ) : col.type === 'number' ? (
-                        `$${Number(v).toLocaleString()}`
-                      ) : (
-                        String(v)
-                      )}
+                      {v === null || v === undefined || String(v).trim() === ''
+                        ? <span style={{ color: '#bbb' }}>—</span>
+                        : col.type === 'date'
+                        ? String(v).slice(0, 10)
+                        : col.type === 'number'
+                        ? `$${Number(v).toLocaleString()}`
+                        : String(v)}
                     </td>
                   );
                 }
 
-                // Financing Type: dropdown
+                // Financing Type: UniversalDropdown
                 if (col.key === 'financing_type') {
+                  const FINANCING_OPTS: DropdownOption[] = [
+                    { value: '', label: '—' },
+                    { value: 'Cash' },
+                    { value: 'Loan' },
+                    { value: 'Seller Financing' },
+                    { value: 'Private Money' },
+                    { value: 'Hard Money' },
+                  ];
                   return (
                     <td key={col.key} style={baseTdStyle}>
-                      <select
+                      <UniversalDropdown
                         value={editValue ?? ''}
-                        style={{ ...inputCellStyle, textAlign: 'center' }}
-                        autoFocus
+                        placeholder="Financing Type"
+                        options={FINANCING_OPTS}
+                        onChange={(val) => saveEdit(col.key, val)}
+                        ariaLabel="Financing Type"
                         disabled={saving}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onBlur={() => saveEdit(col.key)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveEdit(col.key);
-                          if (e.key === 'Escape') setEditKey(null);
-                        }}
-                      >
-                        <option value="">—</option>
-                        <option value="Cash">Cash</option>
-                        <option value="Loan">Loan</option>
-                        <option value="Seller Financing">Seller Financing</option>
-                        <option value="Private Money">Private Money</option>
-                        <option value="Hard Money">Hard Money</option>
-                      </select>
+                      />
                     </td>
                   );
                 }
 
-                // Acquisition Type: dropdown
+                // Acquisition Type: UniversalDropdown
                 if (col.key === 'acquisition_type') {
+                  const ACQ_OPTS: DropdownOption[] = [
+                    { value: '', label: '—' },
+                    { value: '1031 Exchange' },
+                    { value: 'Standard Purchase' },
+                    { value: 'Foreclosure / REO' },
+                    { value: 'Auction' },
+                    { value: 'Inheritance / Gift' },
+                  ];
                   return (
                     <td key={col.key} style={baseTdStyle}>
-                      <select
+                      <UniversalDropdown
                         value={editValue ?? ''}
-                        style={{ ...inputCellStyle, textAlign: 'center' }}
-                        autoFocus
+                        placeholder="Acquisition Type"
+                        options={ACQ_OPTS}
+                        onChange={(val) => saveEdit(col.key, val)}
+                        ariaLabel="Acquisition Type"
                         disabled={saving}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onBlur={() => saveEdit(col.key)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveEdit(col.key);
-                          if (e.key === 'Escape') setEditKey(null);
-                        }}
-                      >
-                        <option value="">—</option>
-                        <option value="1031 Exchange">1031 Exchange</option>
-                        <option value="Standard Purchase">Standard Purchase</option>
-                        <option value="Foreclosure / REO">Foreclosure / REO</option>
-                        <option value="Auction">Auction</option>
-                        <option value="Inheritance / Gift">Inheritance / Gift</option>
-                      </select>
+                      />
                     </td>
                   );
                 }
 
-                // Buyer & Seller: minimal autocomplete (local; commit on Enter/click)
+                // Buyer & Seller: local autocomplete
                 if (col.key === 'buyer' || col.key === 'seller') {
                   return (
                     <td key={col.key} style={baseTdStyle}>
@@ -532,7 +700,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                   );
                 }
 
-                // Editing UI for main fields (borderless inputs)
+                // Generic editor
                 return (
                   <td key={col.key} style={baseTdStyle}>
                     <input
@@ -593,12 +761,10 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                       if (e.key === 'Escape') setEditKey(null);
                     }}
                   />
+                ) : data?.notes && String(data.notes).trim() !== '' ? (
+                  <span>{String(data.notes)}</span>
                 ) : (
-                  (data?.notes && String(data.notes).trim() !== '') ? (
-                    <span>{String(data.notes)}</span>
-                  ) : (
-                    <span style={{ color: '#bbb' }}>—</span>
-                  )
+                  <span style={{ color: '#bbb' }}>—</span>
                 )}
               </td>
             </tr>
@@ -606,6 +772,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
         </Table>
       </div>
 
+      {/* Conditional loan details */}
       {(() => {
         const ft = (data?.financing_type ?? '').toLowerCase();
         const showLoanDetails = ft.includes('loan') || ft.includes('seller financing');

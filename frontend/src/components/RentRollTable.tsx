@@ -1,7 +1,7 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { Table } from '@mantine/core';
 
-const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const API = '/api/rentlog';
 
 const UNIT_WIDTH = 175;                // 1 unit
@@ -85,9 +85,9 @@ export default function RentRollTable({ property_id }: RentRollTableProps) {
           const i = months.findIndex(m => m.toLowerCase() === (row.month ?? '').toLowerCase());
           if (i >= 0) {
             rr.amounts[i] = row.rent_amount != null ? String(row.rent_amount) : '';
-            rr.checks[i]  = row.check_number != null ? String(row.check_number) : '';
-            rr.notes[i]   = row.notes || '';
-            rr.dates[i]   = row.date_deposited ? String(row.date_deposited).substring(0,10) : '';
+            rr.checks[i] = row.check_number != null ? String(row.check_number) : '';
+            rr.notes[i] = row.notes || '';
+            rr.dates[i] = row.date_deposited ? String(row.date_deposited).substring(0, 10) : '';
           }
         });
         setDataByYear(prev => ({ ...prev, [year]: rr }));
@@ -107,8 +107,8 @@ export default function RentRollTable({ property_id }: RentRollTableProps) {
     const { row, col } = editing;
     const prevVal =
       col === 'amount' ? yearData.amounts[row]
-      : col === 'check' ? yearData.checks[row]
-      : yearData.notes[row];
+        : col === 'check' ? yearData.checks[row]
+          : yearData.notes[row];
 
     if (editValue === prevVal) {
       setEditing(null);
@@ -137,13 +137,13 @@ export default function RentRollTable({ property_id }: RentRollTableProps) {
 
       const updated: RentRollData = {
         amounts: [...yearData.amounts],
-        checks:  [...yearData.checks],
-        notes:   [...yearData.notes],
-        dates:   [...yearData.dates],
+        checks: [...yearData.checks],
+        notes: [...yearData.notes],
+        dates: [...yearData.dates],
       };
       if (col === 'amount') updated.amounts[row] = editValue;
-      if (col === 'check')  updated.checks[row]  = editValue;
-      if (col === 'notes')  updated.notes[row]   = editValue;
+      if (col === 'check') updated.checks[row] = editValue;
+      if (col === 'notes') updated.notes[row] = editValue;
       setDataByYear(prev => ({ ...prev, [year]: updated }));
       setEditing(null);
       setEditValue('');
@@ -184,9 +184,9 @@ export default function RentRollTable({ property_id }: RentRollTableProps) {
       if (!res.ok) throw new Error(await res.text());
       const updated: RentRollData = {
         amounts: [...yearData.amounts],
-        checks:  [...yearData.checks],
-        notes:   [...yearData.notes],
-        dates:   [...yearData.dates],
+        checks: [...yearData.checks],
+        notes: [...yearData.notes],
+        dates: [...yearData.dates],
       };
       updated.dates[i] = safeDate ?? '';
       setDataByYear(prev => ({ ...prev, [year]: updated }));
@@ -222,106 +222,128 @@ export default function RentRollTable({ property_id }: RentRollTableProps) {
     );
   }
 
-return (
-  <div style={{ marginTop: 32, width: TABLE_WIDTH }}>
-    {/* NAVIGATION BAR (Prev / Year / Next) */}
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: 16,
-        width: TABLE_WIDTH,
-        boxSizing: 'border-box',
-        padding: '12px 16px',
-        background: '#b6b6b6ff',
-        border: '4px solid #000',
-        borderBottom: 'none', // attach to Rent Log bar
-      }}
-    >
-      <button style={arrowButtonStyle} onClick={() => handleYearChange(year - 1)}>
-        &#8592; Prev
-      </button>
-      <span style={yearTextStyle}>{year}</span>
-      <button style={arrowButtonStyle} onClick={() => handleYearChange(year + 1)}>
-        Next &#8594;
-      </button>
-    </div>
+  return (
+    <div style={{ marginTop: 32, width: TABLE_WIDTH }}>
+      {/* NAVIGATION BAR (Prev / Year / Next) */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: 16,
+          width: TABLE_WIDTH,
+          boxSizing: 'border-box',
+          padding: '12px 16px',
+          background: '#b6b6b6ff',
+          border: '4px solid #000',
+          borderBottom: 'none', // attach to Rent Log bar
+        }}
+      >
+        <button style={arrowButtonStyle} onClick={() => handleYearChange(year - 1)}>
+          &#8592; Prev
+        </button>
+        <span style={yearTextStyle}>{year}</span>
+        <button style={arrowButtonStyle} onClick={() => handleYearChange(year + 1)}>
+          Next &#8594;
+        </button>
+      </div>
 
-    {/* RENT LOG TITLE */}
-    <div
-      style={{
-        width: TABLE_WIDTH,
-        boxSizing: 'border-box',
-        // margin: '0 auto 0',
-        // padding: '12px 16px',
-        background: '#b6b6b6ff',      // soft yellow
-        border: '4px solid #000',   // thick border
-        borderTop: 'none',          // attaches to nav bar
-        borderBottom: 'none',       // attaches to table
-        textAlign: 'center',
-        fontWeight: 900,
-        fontSize: 40,
-        letterSpacing: 1,
-      }}
-    >
-      RENT LOG
-    </div>
-
-    {saveError && (
+      {/* RENT LOG TITLE */}
       <div
         style={{
           width: TABLE_WIDTH,
-          marginBottom: 16,
-          padding: '10px 18px',
-          background: '#ffeded',
-          color: '#a13d3d',
-          border: '1.5px solid #e57e7e',
-          borderRadius: 6,
-          fontWeight: 600,
-          fontSize: 16,
-          letterSpacing: 0.5,
+          boxSizing: 'border-box',
+          margin: '0 auto 0',
+          padding: '12px 16px',
+          background: '#b6b6b6ff',
+          border: '4px solid #000',
+          borderTop: 'none',
+          borderBottom: 'none',
+          textAlign: 'center',
+          fontWeight: 900,
+          fontSize: 40,
+          letterSpacing: 1,
         }}
       >
-        {saveError}
+        RENT LOG
       </div>
-    )}
 
-    <div style={{ width: TABLE_WIDTH }}>
-      <Table
-        highlightOnHover
-        style={{
-          width: '100%',
-          fontSize: 16,
-          fontFamily: 'inherit',
-          borderCollapse: 'collapse',
-          border: '4px solid #000',            // thick border
-          boxShadow: '0 12px 28px rgba(0,0,0,0.3)', // strong drop shadow
-          marginBottom: 32,
-          background: '#fff',
-          tableLayout: 'fixed',
-        }}
-      >
-        <ColsPx />
-        <thead>
-          <tr>
-            <th style={thStyle}>Year</th>
-            <th style={thStyle}>Month</th>
-            <th style={thStyle}>Amount</th>
-            <th style={thStyle}>Check #</th>
-            <th style={thStyle}>Date Deposited</th>
-            <th style={thStyle}>Notes</th>
-          </tr>
-        </thead>
-        
+      {saveError && (
+        <div
+          style={{
+            width: TABLE_WIDTH,
+            marginBottom: 16,
+            padding: '10px 18px',
+            background: '#ffeded',
+            color: '#a13d3d',
+            border: '1.5px solid #e57e7e',
+            borderRadius: 6,
+            fontWeight: 600,
+            fontSize: 16,
+            letterSpacing: 0.5,
+          }}
+        >
+          {saveError}
+        </div>
+      )}
+
+      <div style={{ width: TABLE_WIDTH }}>
+        <Table
+          highlightOnHover
+          style={{
+            width: '100%',
+            fontSize: 16,
+            fontFamily: 'inherit',
+            borderCollapse: 'collapse',
+            border: '4px solid #000',            // thick border
+            boxShadow: '0 12px 28px rgba(0,0,0,0.3)', // strong drop shadow
+            marginBottom: 32,
+            background: '#fff',
+            tableLayout: 'fixed',
+          }}
+        >
+          <ColsPx />
+          <thead>
+            <tr>
+              <th style={thStyle}>Year</th>
+              <th style={thStyle}>Month</th>
+              <th style={thStyle}>Amount</th>
+              <th style={thStyle}>Check #</th>
+              <th style={thStyle}>Date Deposited</th>
+              <th style={thStyle}>Notes</th>
+            </tr>
+          </thead>
+
           <tbody>
             {months.map((month, i) => {
               const rowFocused = isRowFocused(i);
               const rowStyle = rowFocused ? { outline: '2px solid #325dae', background: HILITE_BG } : {};
               return (
                 <tr key={month} style={rowStyle}>
-                  <td style={tdStyle}>{year}</td>
-                  <td style={tdStyle}>{month}</td>
+                  {/* Year cell — bold, larger font, light gray background */}
+                  <td
+                    style={{
+                      ...tdStyle,
+                      fontWeight: 800,
+                      fontSize: 18,
+                      color: '#ffffffff',
+                      background: '#000000ff',
+                    }}
+                  >
+                    {year}
+                  </td>
+
+                  {/* Month cell — bold, larger font, light gray background, UPPERCASE */}
+                  <td
+                    style={{
+                      ...tdStyle,
+                      fontWeight: 800,
+                      fontSize: 18,
+                      background: '#b6b6b6ff',
+                    }}
+                  >
+                    {month.toUpperCase()}
+                  </td>
 
                   {/* Amount */}
                   <td
@@ -340,7 +362,7 @@ return (
                       />
                     ) : (
                       yearData.amounts[i]
-                        ? currencyFormatter.format(Number((yearData.amounts[i] || '0').replace(/[,$]/g,'')))
+                        ? currencyFormatter.format(Number((yearData.amounts[i] || '0').replace(/[,$]/g, '')))
                         : ''
                     )}
                   </td>

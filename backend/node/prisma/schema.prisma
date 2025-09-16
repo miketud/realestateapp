@@ -27,6 +27,10 @@ model Property {
   status           String
   income_producing YesNo    @default(NO)
   created_at       DateTime @default(now())
+  
+  lat             Float?    @map("lat")
+  lng             Float?    @map("lng")
+  geocoded_at     DateTime?
 
   // Relations
   rentLogs        RentLog[]
@@ -36,6 +40,10 @@ model Property {
   paymentLogs     PaymentLog[]
 
   @@map("properties")
+  
+  @@index([city, state])
+  @@index([lat, lng], map: "idx_property_lat_lng")
+  @@unique([address, city, state, zipcode], map: "uniq_prop_address")
 }
 
 model RentLog {
