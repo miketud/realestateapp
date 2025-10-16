@@ -173,7 +173,7 @@ function ContactInlineRows({ property_id, colSpan }: { property_id: number; colS
   const toDigits = (v: string) => (v || '').replace(/\D/g, '');
   const fmtUSPhoneFull = (digits: string) => {
     const d = toDigits(digits).slice(0, 10);
-    return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : (digits || '—');
+    return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (digits || '—');
   };
 
   const attachById = (val: string) => {
@@ -256,7 +256,7 @@ function ContactInlineRows({ property_id, colSpan }: { property_id: number; colS
                     if (e.key === 'Escape') { e.preventDefault(); resetAndFocusClosed(); return; }
                     if (!filtered.length) return;
                     if (e.key === 'ArrowDown') { e.preventDefault(); setHover(i => (i + 1) % filtered.length); }
-                    if (e.key === 'ArrowUp') { e.preventDefault(); setHover(i => (i - 1 + filtered.length) % filtered.length); }
+                    if (e.key === 'ArrowUp')   { e.preventDefault(); setHover(i => (i - 1 + filtered.length) % filtered.length); }
                     if (e.key === 'Enter') {
                       e.preventDefault();
                       const idx = hover >= 0 ? hover : 0;
@@ -286,7 +286,7 @@ function ContactInlineRows({ property_id, colSpan }: { property_id: number; colS
                       ) : (
                         filtered.slice(0, 200).map((c, i) => {
                           const d = toDigits(c.phone || '');
-                          const phoneFmt = d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : (c.phone || '');
+                          const phoneFmt = d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (c.phone || '');
                           const meta = [phoneFmt, c.email, c.contact_type].filter(Boolean).join(' · ');
                           const active = i === hover;
                           return (
@@ -382,14 +382,14 @@ export default function PropertyView({ property_id }: PropertyViewProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const innerPanelRef = useRef<HTMLDivElement | null>(null);
-  const [panelH, setPanelH] = useState(0);
-  useLayoutEffect(() => {
-    if (!nameSearchOpen) return;
-    const el = innerPanelRef.current;
-    if (!el) return;
-    // measure full content height
-    setPanelH(el.scrollHeight);
-  }, [nameSearchOpen, nameResults, nameLoading, nameQuery]);
+const [panelH, setPanelH] = useState(0);
+useLayoutEffect(() => {
+  if (!nameSearchOpen) return;
+  const el = innerPanelRef.current;
+  if (!el) return;
+  // measure full content height
+  setPanelH(el.scrollHeight);
+}, [nameSearchOpen, nameResults, nameLoading, nameQuery]);
 
   const openNameSearch = useCallback(async () => {
     setNameSearchOpen(true);
@@ -740,7 +740,7 @@ export default function PropertyView({ property_id }: PropertyViewProps) {
       );
     }
     if (k === 'state' && isEditing) {
-      const states = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'];
+      const states = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
       return (
         <td colSpan={units} style={{ ...tdBase, background: HILITE_BG, boxShadow: FOCUS_RING }}>
           <select
@@ -816,305 +816,317 @@ export default function PropertyView({ property_id }: PropertyViewProps) {
     return null;
   })();
 
-  return (
-    <Box style={{ background: '#fff', minHeight: '100vh' }}>
-      <Box style={{ width: CONTAINER_WIDTH, margin: '0 auto 0' }}>
-        {saveError !== null && (
-          <BannerMessage message={saveError} type="error" autoCloseMs={5000} onDismiss={() => setSaveError(null)} />
-        )}
+return (
+  <Box style={{ background: '#fff', minHeight: '100vh' }}>
+    <Box style={{ width: CONTAINER_WIDTH, margin: '0 auto 0' }}>
+      {saveError !== null && (
+        <BannerMessage message={saveError} type="error" autoCloseMs={5000} onDismiss={() => setSaveError(null)} />
+      )}
 
-        {loading ? (
-          <Center style={{ minHeight: '60vh' }}>
-            <Loader size="xl" />
-          </Center>
-        ) : error ? (
-          <Box p={40}>
-            <Title order={3} style={{ color: 'red' }}>{error}</Title>
-          </Box>
-        ) : property ? (
-          <>
-            {/* HEADER BAR (click to open property switcher) */}
-            <Box
-              onClick={() => setOverviewOpen((v) => !v)}
+      {loading ? (
+        <Center style={{ minHeight: '60vh' }}>
+          <Loader size="xl" />
+        </Center>
+      ) : error ? (
+        <Box p={40}>
+          <Title order={3} style={{ color: 'red' }}>{error}</Title>
+        </Box>
+      ) : property ? (
+        <>
+          {/* HEADER BAR (click to open property switcher) */}
+          <Box
+            style={{
+              width: TABLE_WIDTH,
+              boxSizing: 'border-box',
+              margin: '0 auto 0',
+              padding: '12px 16px',
+              background: '#111',
+              color: '#ffffffff',
+              border: 'none',
+              textAlign: 'center',
+              fontWeight: 800,
+              fontSize: 40,
+              letterSpacing: 1,
+              position: 'relative',
+              lineHeight: 1.1,
+            }}
+          >
+            <div
+              aria-label="Property ID"
               style={{
-                width: TABLE_WIDTH,
-                boxSizing: 'border-box',
-                margin: '0 auto 0',
-                padding: '12px 16px',
-                background: '#111',
-                color: '#ffffffff',
-                border: 'none',
-                textAlign: 'center',
-                fontWeight: 800,
-                fontSize: 40,
-                letterSpacing: 1,
-                position: 'relative',
-                lineHeight: 1.1,
-                cursor: 'pointer',
+                position: 'absolute',
+                left: 10,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                height: 40,
+                minWidth: 100,
+                padding: '0 10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#e7eaf0',
+                color: '#111',
+                fontSize: 20,
+                fontWeight: 700,
+                borderRadius: 6,
+                lineHeight: 1,
+                border: DIVIDER,
+                zIndex: 1,
               }}
             >
+              ID {property.property_id}
+            </div>
+
+            {headerCircleColor && (
               <div
-                aria-label="Property ID"
+                aria-label={headerCircleLabel || 'Income-Producing state'}
+                title={headerCircleLabel || ''}
                 style={{
                   position: 'absolute',
-                  left: 10,
+                  left: 120,
                   top: '50%',
                   transform: 'translateY(-50%)',
+                  width: 300,
                   height: 40,
-                  minWidth: 100,
-                  padding: '0 10px',
+                  borderRadius: 6,
+                  background: headerCircleColor,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: '#e7eaf0',
-                  color: '#111',
-                  fontSize: 20,
+                  color: '#fff',
                   fontWeight: 700,
-                  borderRadius: 6,
+                  fontSize: 20,
+                  letterSpacing: 0.5,
+                  userSelect: 'none',
                   lineHeight: 1,
-                  border: DIVIDER,
                   zIndex: 1,
                 }}
               >
-                ID {property.property_id}
+                {headerCircleLabel}
               </div>
+            )}
 
-              {headerCircleColor && (
-                <div
-                  aria-label={headerCircleLabel || 'Income-Producing state'}
-                  title={headerCircleLabel || ''}
-                  style={{
-                    position: 'absolute',
-                    left: 120,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    width: 300,
-                    height: 40,
-                    borderRadius: 6,
-                    background: headerCircleColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#fff',
-                    fontWeight: 700,
-                    fontSize: 20,
-                    letterSpacing: 0.5,
-                    userSelect: 'none',
-                    lineHeight: 1,
-                    zIndex: 1,
-                  }}
-                >
-                  {headerCircleLabel}
-                </div>
-              )}
-              {/* View icon opens property switcher */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openNameSearch();
-                }}
-                aria-label="Open property switcher"
-                style={{
-                  position: 'absolute',
-                  right: 14,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 3,
-                }}
-              >
-                <Icon name="view" size={32} />
-              </button>
-
+            <button
+              onClick={() => setOverviewOpen((v) => !v)}
+              aria-label={overviewOpen ? 'Hide overview' : 'Show overview'}
+              style={{
+                position: 'absolute',
+                right: 10,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: 28,
+                height: 28,
+                background: 'transparent',
+                padding: 0,
+                cursor: 'pointer',
+                zIndex: 3,
+              }}
+            >
               <span
                 style={{
-                  cursor: 'default',
-                  userSelect: 'none',
-                }}
-              >
-                {(property.property_name || 'Property').toUpperCase()}
-              </span>
-            </Box>
-
-            {/* One layout-animated stack for divider + panel + body */}
-            <motion.div layout transition={{ type: 'spring', stiffness: 420, damping: 38 }} style={{ width: TABLE_WIDTH, margin: '0 auto' }}>
-              {/* Divider under title */}
-              <div
-                style={{
-                  width: TABLE_WIDTH,
-                  margin: '0 auto 4px',
-                  height: 0,
-                  // borderBottom: '10px solid rgba(190, 6, 6, 1)', //  MAIN TITLE DIVIDER
-                  boxShadow: '0 8px 16px rgba(0,0,0,0.12)',
-                  pointerEvents: 'none',
+                  position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  width: 18,
+                  height: 2,
+                  background: '#111',
+                  transform: `translate(-50%, -50%) rotate(${overviewOpen ? 60 : 0}deg)`,
+                  transition: 'transform 200ms ease',
                 }}
               />
+            </button>
 
-              <AnimatePresence initial={false}>
-                {nameSearchOpen && (
-                  <motion.div
-                    key="prop-switcher"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: panelH, opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.22, ease: 'easeOut' }}
-                    style={{ overflow: 'hidden', willChange: 'height,opacity' }}
-                  >
-                    <div
-                      ref={innerPanelRef}
-                      id="prop-switcher-panel"
-                      style={{
-                        width: TABLE_WIDTH,
-                        margin: '0 auto 8px',
-                        background: '#fff',
-                        border: DIVIDER,
-                        boxShadow: '0 16px 32px rgba(0,0,0,0.2)',
-                        zIndex: 40,
-                      }}
-                    >
-                      <div style={{ padding: 12, borderBottom: DIVIDER }}>
-                        <input
-                          ref={inputRef}
-                          value={nameQuery}
-                          onChange={(e) => setNameQuery(e.target.value)}
-                          onKeyDown={onHeaderKeyDown}
-                          placeholder="Search properties…"
-                          style={{
-                            width: '100%',
-                            height: 40,
-                            border: 'none',
-                            outline: 'none',
-                            fontSize: 16,
-                            padding: '0 10px',
-                            background: '#f6f7f9',
-                            borderRadius: 6,
-                          }}
-                        />
-                      </div>
+            <span
+              id="prop-switcher-trigger"
+              role="button"
+              tabIndex={0}
+              onClick={openNameSearch}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openNameSearch();
+                }
+              }}
+              style={{ cursor: 'text', userSelect: 'none' }}
+              title="Click to switch property (Esc to cancel)"
+            >
+              {(property.property_name || 'Property').toUpperCase()}
+            </span>
+          </Box>
 
-                      <div style={{ maxHeight: 420, overflowY: 'auto' }}>
-                        {nameLoading ? (
-                          <div style={{ padding: 12, color: '#666' }}>Loading…</div>
-                        ) : nameResults.length === 0 ? (
-                          <div style={{ padding: 12, color: '#666' }}>No matches</div>
-                        ) : (
-                          nameResults.map((p, i) => {
-                            const active = i === hoverIdx;
-                            return (
-                              <div
-                                key={p.property_id}
-                                onMouseEnter={() => setHoverIdx(i)}
-                                onClick={() => commitSwitch(p.property_id)}
-                                style={{
-                                  padding: '10px 12px',
-                                  borderTop: DIVIDER,
-                                  background: active ? '#eef1f3' : '#fff',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  gap: 8,
-                                  alignItems: 'baseline',
-                                  fontSize: 14,
-                                }}
-                              >
-                                <strong style={{ fontSize: 15, color: '#111' }}>{p.property_name}</strong>
-                                {p.address ? <span style={{ color: '#555' }}>· {p.address}</span> : null}
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+{/* One layout-animated stack for divider + panel + body */}
+<motion.div layout transition={{ type: 'spring', stiffness: 420, damping: 38 }} style={{ width: TABLE_WIDTH, margin: '0 auto' }}>
+{/* Divider under title */}
+<div
+  style={{
+    width: TABLE_WIDTH,
+    margin: '0 auto 4px',
+    height: 0,
+    // borderBottom: '10px solid rgba(190, 6, 6, 1)', //  MAIN TITLE DIVIDER
+    boxShadow: '0 8px 16px rgba(0,0,0,0.12)',
+    pointerEvents: 'none',
+  }}
+/>
 
-              {/* BODY — same simple easeOut collapse */}
-              <motion.div
-                initial={false}
-                animate={{ opacity: overviewOpen ? 1 : 0, height: overviewOpen ? 'auto' : 0 }}
-                transition={{ duration: 0.22, ease: 'easeOut' }}
-                style={{ overflow: 'hidden' }}
-              >
-                <div style={{ width: TABLE_WIDTH, margin: '0 auto', background: '#fff', overflow: 'visible' }}>
-                  <Table
-                    highlightOnHover={false}
-                    withColumnBorders={false}
-                    style={{
-                      fontSize: FONT_SIZE,
-                      borderCollapse: 'collapse',
-                      borderSpacing: 0,
-                      width: '100%',
-                      tableLayout: 'fixed',
-                      margin: 0,
-                      background: '#fff',
-                    }}
-                  >
-                    <colgroup>
-                      {Array.from({ length: MAX_COLS }).map((_, i) => (
-                        <col key={i} style={{ width: COL_WIDTH }} />
-                      ))}
-                    </colgroup>
+<AnimatePresence initial={false}>
+  {nameSearchOpen && (
+    <motion.div
+      key="prop-switcher"
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: panelH, opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
+      style={{ overflow: 'hidden', willChange: 'height,opacity' }}
+    >
+      <div
+        ref={innerPanelRef}
+        id="prop-switcher-panel"
+        style={{
+          width: TABLE_WIDTH,
+          margin: '0 auto 8px',
+          background: '#fff',
+          border: DIVIDER,
+          boxShadow: '0 16px 32px rgba(0,0,0,0.2)',
+          zIndex: 40,
+        }}
+      >
+        <div style={{ padding: 12, borderBottom: DIVIDER }}>
+          <input
+            ref={inputRef}
+            value={nameQuery}
+            onChange={(e) => setNameQuery(e.target.value)}
+            onKeyDown={onHeaderKeyDown}
+            placeholder="Search properties…"
+            style={{
+              width: '100%',
+              height: 40,
+              border: 'none',
+              outline: 'none',
+              fontSize: 16,
+              padding: '0 10px',
+              background: '#f6f7f9',
+              borderRadius: 6,
+            }}
+          />
+        </div>
 
-                    <tbody>
-                      <tr>
-                        <HeaderCell label="Property Name" units={2} />
-                        <HeaderCell label="Address" units={3} />
-                        <HeaderCell label="City" />
-                        <HeaderCell label="State" />
-                        <HeaderCell label="Zip Code" />
-                        <HeaderCell label="County" />
-                      </tr>
-                      <tr>
-                        <ValueCell k="property_name" units={2} />
-                        <ValueCell k="address" units={3} />
-                        <ValueCell k="city" />
-                        <ValueCell k="state" />
-                        <ValueCell k="zipcode" />
-                        <ValueCell k="county" />
-                      </tr>
-
-                      <tr>
-                        <HeaderCell label="Owner" units={2} />
-                        <HeaderCell label="Year" />
-                        <HeaderCell label="Type" />
-                        <HeaderCell label="Status" />
-                        <HeaderCell label="Current Market Value" />
-                        <HeaderCell />
-                        <HeaderCell />
-                        <HeaderCell />
-                      </tr>
-                      <tr>
-                        <ValueCell k="owner" units={2} />
-                        <ValueCell k="year" type="number" />
-                        <ValueCell k="type" />
-                        <ValueCell k="status" />
-                        <ValueCell k="market_value" type="number" />
-                        <BlackCell />
-                        <BlackCell />
-                        <BlackCell />
-                      </tr>
-
-                      <ContactInlineRows property_id={property.property_id} colSpan={MAX_COLS} />
-
-                      {/* Tenant row */}
-                      <tr>
-                        <td colSpan={MAX_COLS} style={{ padding: 0, border: 'none' }}>
-                          <div style={{ width: '100%', background: '#fff', borderTop: DIVIDER }}>
-                            <Tenant property_id={property.property_id} />
-                          </div>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </Table>
+        <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+          {nameLoading ? (
+            <div style={{ padding: 12, color: '#666' }}>Loading…</div>
+          ) : nameResults.length === 0 ? (
+            <div style={{ padding: 12, color: '#666' }}>No matches</div>
+          ) : (
+            nameResults.map((p, i) => {
+              const active = i === hoverIdx;
+              return (
+                <div
+                  key={p.property_id}
+                  onMouseEnter={() => setHoverIdx(i)}
+                  onClick={() => commitSwitch(p.property_id)}
+                  style={{
+                    padding: '10px 12px',
+                    borderTop: DIVIDER,
+                    background: active ? '#eef1f3' : '#fff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'baseline',
+                    fontSize: 14,
+                  }}
+                >
+                  <strong style={{ fontSize: 15, color: '#111' }}>{p.property_name}</strong>
+                  {p.address ? <span style={{ color: '#555' }}>· {p.address}</span> : null}
                 </div>
-              </motion.div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </motion.div>
+  )}
+</AnimatePresence>
+
+{/* BODY — same simple easeOut collapse */}
+<motion.div
+  initial={false}
+  animate={{ opacity: overviewOpen ? 1 : 0, height: overviewOpen ? 'auto' : 0 }}
+  transition={{ duration: 0.22, ease: 'easeOut' }}
+  style={{ overflow: 'hidden' }}
+>
+  <div style={{ width: TABLE_WIDTH, margin: '0 auto', background: '#fff', overflow: 'visible' }}>
+                <Table
+                  highlightOnHover={false}
+                  withColumnBorders={false}
+                  style={{
+                    fontSize: FONT_SIZE,
+                    borderCollapse: 'collapse',
+                    borderSpacing: 0,
+                    width: '100%',
+                    tableLayout: 'fixed',
+                    margin: 0,
+                    background: '#fff',
+                  }}
+                >
+                  <colgroup>
+                    {Array.from({ length: MAX_COLS }).map((_, i) => (
+                      <col key={i} style={{ width: COL_WIDTH }} />
+                    ))}
+                  </colgroup>
+
+                  <tbody>
+                    <tr>
+                      <HeaderCell label="Property Name" units={2} />
+                      <HeaderCell label="Address" units={3} />
+                      <HeaderCell label="City" />
+                      <HeaderCell label="State" />
+                      <HeaderCell label="Zip Code" />
+                      <HeaderCell label="County" />
+                    </tr>
+                    <tr>
+                      <ValueCell k="property_name" units={2} />
+                      <ValueCell k="address" units={3} />
+                      <ValueCell k="city" />
+                      <ValueCell k="state" />
+                      <ValueCell k="zipcode" />
+                      <ValueCell k="county" />
+                    </tr>
+
+                    <tr>
+                      <HeaderCell label="Owner" units={2} />
+                      <HeaderCell label="Year" />
+                      <HeaderCell label="Type" />
+                      <HeaderCell label="Status" />
+                      <HeaderCell label="Current Market Value" />
+                      <HeaderCell />
+                      <HeaderCell />
+                      <HeaderCell />
+                    </tr>
+                    <tr>
+                      <ValueCell k="owner" units={2} />
+                      <ValueCell k="year" type="number" />
+                      <ValueCell k="type" />
+                      <ValueCell k="status" />
+                      <ValueCell k="market_value" type="number" />
+                      <BlackCell />
+                      <BlackCell />
+                      <BlackCell />
+                    </tr>
+
+                    <ContactInlineRows property_id={property.property_id} colSpan={MAX_COLS} />
+
+                    {/* Tenant row */}
+                    <tr>
+                      <td colSpan={MAX_COLS} style={{ padding: 0, border: 'none' }}>
+                        <div style={{ width: '100%', background: '#fff', borderTop: DIVIDER }}>
+                          <Tenant property_id={property.property_id} />
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </Table>
+              </div>
             </motion.div>
+          </motion.div>
 
 
             {/* Purchase Details */}

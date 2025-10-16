@@ -22,7 +22,7 @@ const BASE_FONT_SIZE = 16;
 const TEXT_COLOR = '#111';
 const HEADER_RULE = '2px solid rgba(0,0,0,0.25)';
 const DIVIDER = '1px solid rgba(0,0,0,0.18)';
-const ROW_HOVER_BG = '#d6e7ffff';
+const ROW_HOVER_BG = '#d6e7ffff'; // row hover blue
 const ENTRY_BG = '#f4f4f4';
 const EDIT_DIM_BG = '#00000075';
 
@@ -37,6 +37,7 @@ const thNoLines: CSSProperties = {
   letterSpacing: 0.3,
   textAlign: 'center',
   minHeight: 52,
+  height: 'auto',
   userSelect: 'none',
 };
 const headerBtn: CSSProperties = {
@@ -87,6 +88,7 @@ const inputTight: CSSProperties = {
 };
 const inputNotes: CSSProperties = { ...inputTight, textAlign: 'left' };
 
+/* Centered smaller white control inside Type cell */
 const TYPE_CELL_INNER: CSSProperties = {
   width: '72%',
   minWidth: 260,
@@ -96,7 +98,7 @@ const TYPE_CELL_INNER: CSSProperties = {
   boxSizing: 'border-box',
 };
 
-/* Dropdown options */
+/* Options */
 const TXN_TYPES_BASE = [
   'Advertising / Marketing',
   'HOA Fee',
@@ -116,6 +118,27 @@ const TXN_TYPES_BASE = [
 ] as const;
 const TXN_TYPES = [...TXN_TYPES_BASE].sort((a, b) => a.localeCompare(b));
 const TXN_OPTIONS: DropdownOption[] = TXN_TYPES.map((t) => ({ value: t }));
+
+/* Types */
+export type TransactionRow = {
+  transaction_id?: number;
+  transaction_type?: string;
+  notes?: string;
+  transaction_amount?: number | string;
+  transaction_date?: string;
+};
+type Props = {
+  property_id: number;
+  transactions: TransactionRow[];
+  setTransactions: (rows: TransactionRow[]) => void;
+};
+type FocusState =
+  | { kind: 'add'; col: 'type' | 'amount' | 'date' | 'notes' }
+  | { kind: 'edit'; index: number; col: 'type' | 'amount' | 'date' | 'notes' }
+  | null;
+
+type SortKey = 'transaction_type' | 'transaction_amount' | 'transaction_date';
+type SortDir = 'asc' | 'desc';
 
 /* Helpers */
 const parseCurrencyNumber = (v: any): number | null => {
@@ -155,33 +178,17 @@ const todayISOInNY = () => {
 /* Sort icons */
 const sortIcons = { asc: <Icon name="sortUp" />, desc: <Icon name="sortDown" />, none: <Icon name="sort" /> } as const;
 
-/* Types */
-export type TransactionRow = {
-  transaction_id?: number;
-  transaction_type?: string;
-  notes?: string;
-  transaction_amount?: number | string;
-  transaction_date?: string;
-};
-type Props = {
-  property_id: number;
-  transactions: TransactionRow[];
-  setTransactions: (rows: TransactionRow[]) => void;
-};
-type FocusState =
-  | { kind: 'add'; col: 'type' | 'amount' | 'date' | 'notes' }
-  | { kind: 'edit'; index: number; col: 'type' | 'amount' | 'date' | 'notes' }
-  | null;
-type SortKey = 'transaction_type' | 'transaction_amount' | 'transaction_date';
-type SortDir = 'asc' | 'desc';
-
+/* Component */
 export default function TransactionLog({ property_id, transactions, setTransactions }: Props) {
+  /* Add */
   const [addDraft, setAddDraft] = useState<TransactionRow>({
     transaction_type: '',
     notes: '',
     transaction_amount: '',
     transaction_date: '',
   });
+
+  /* Edit */
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [draft, setDraft] = useState<TransactionRow>({
     transaction_type: '',
@@ -189,21 +196,17 @@ export default function TransactionLog({ property_id, transactions, setTransacti
     transaction_amount: '',
     transaction_date: '',
   });
+
+  /* Focus + errors */
   const [focus, setFocus] = useState<FocusState>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  /* Delete confirm */
   const [confirmIdx, setConfirmIdx] = useState<number | null>(null);
+
+  /* Sorting */
   const [sortKey, setSortKey] = useState<SortKey>('transaction_date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [hoverHdr, setHoverHdr] = useState<SortKey | null>(null);
-
-// Calculate running total of all logged amounts
-const totalAmount = useMemo(() => {
-  return transactions.reduce((sum, t) => {
-    const n = parseFloat(String(t.transaction_amount || '').replace(/[^\d.-]/g, ''));
-    return sum + (isNaN(n) ? 0 : n);
-  }, 0);
-}, [transactions]);
-
 
   const sortedRows = useMemo(() => {
     const list = transactions.slice();
@@ -228,6 +231,26 @@ const totalAmount = useMemo(() => {
     return list;
   }, [transactions, sortKey, sortDir]);
 
+  /* Cancel edit helper */
+  const onEditCancel = useCallback(() => {
+    setEditingIdx(null);
+    setDraft({ transaction_type: '', notes: '', transaction_amount: '', transaction_date: '' });
+    setFocus(null);
+    setConfirmIdx(null);
+  }, []);
+
+  /* Global ESC */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (confirmIdx !== null) { setConfirmIdx(null); return; }
+      if (editingIdx !== null) onEditCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirmIdx, editingIdx, onEditCancel]);
+
+  /* Collapse */
   const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [maxH, setMaxH] = useState(0);
@@ -239,11 +262,13 @@ const totalAmount = useMemo(() => {
     return () => window.removeEventListener('resize', onResize);
   }, [measure]);
 
+  /* Gates */
   const addHasAny =
     (addDraft.transaction_type ?? '').trim() ||
     (addDraft.notes ?? '').trim() ||
     String(addDraft.transaction_amount ?? '').trim() ||
     (addDraft.transaction_date ?? '').trim();
+
   const addIsComplete =
     (addDraft.transaction_type ?? '').trim() &&
     (addDraft.notes ?? '').trim() &&
@@ -264,52 +289,7 @@ const totalAmount = useMemo(() => {
       return a !== b;
     });
 
-  const onEditCancel = useCallback(() => {
-    setEditingIdx(null);
-    setDraft({ transaction_type: '', notes: '', transaction_amount: '', transaction_date: '' });
-    setFocus(null);
-    setConfirmIdx(null);
-  }, []);
-
-  /* KEY ESCAPE */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (confirmIdx !== null) { setConfirmIdx(null); return; }
-      if (editingIdx !== null) onEditCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [confirmIdx, editingIdx, onEditCancel]);
-
-  /* Input helpers */
-  const addKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && addIsComplete) onAddSave();
-    else if (e.key === 'Escape') {
-      (e.currentTarget as HTMLInputElement).blur();
-      setFocus(null);
-      setConfirmIdx(null);
-    }
-  };
-  const escUnfocus = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') {
-      (e.currentTarget as HTMLInputElement).blur();
-      onEditCancel();
-    }
-  };
-
-  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
-  const rowActionsVisible = (idx: number, isEditing: boolean, isConfirming: boolean) =>
-    hoveredRow === idx || isEditing || isConfirming;
-
-  const openCombobox = (el: HTMLElement) => {
-    const box = el.querySelector<HTMLElement>('[role="combobox"], input');
-    if (!box) return;
-    box.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    box.focus();
-  };
-
-  /* ADD logic */
+  /* Add */
   function onAddInput(e: React.ChangeEvent<HTMLInputElement>) {
     const { name, value } = e.target;
     setAddDraft((p) => ({ ...p, [name]: name === 'transaction_amount' ? sanitizeMoney(value) : value }));
@@ -347,24 +327,10 @@ const totalAmount = useMemo(() => {
     setConfirmIdx(null);
   }
 
-  /* EDIT logic */
+  /* Edit */
   function onEditInput(e: React.ChangeEvent<HTMLInputElement>) {
-  const { name, value } = e.target;
-  setDraft((p) => ({
-    ...p,
-    [name]: name === 'transaction_amount' ? sanitizeMoney(value) : value,
-  }));
-}
-  function startEdit(i: number) {
-    const r = transactions[i];
-    setDraft({
-      ...r,
-      transaction_amount: sanitizeMoney(String(r.transaction_amount ?? '')),
-      transaction_date: r.transaction_date?.slice(0, 10) ?? '',
-    });
-    setEditingIdx(i);
-    setFocus({ kind: 'edit', index: i, col: 'type' });
-    setConfirmIdx(null);
+    const { name, value } = e.target;
+    setDraft((p) => ({ ...p, [name]: name === 'transaction_amount' ? sanitizeMoney(value) : value }));
   }
   async function onEditSave() {
     if (editingIdx === null || !transactions[editingIdx]?.transaction_id) return;
@@ -392,8 +358,19 @@ const totalAmount = useMemo(() => {
       setErrorMsg('Update failed.');
     }
   }
+  function startEdit(i: number) {
+    const r = transactions[i];
+    setDraft({
+      ...r,
+      transaction_amount: sanitizeMoney(String(r.transaction_amount ?? '')),
+      transaction_date: r.transaction_date?.slice(0, 10) ?? '',
+    });
+    setEditingIdx(i);
+    setFocus({ kind: 'edit', index: i, col: 'type' });
+    setConfirmIdx(null);
+  }
 
-  /* DELETE */
+  /* Delete */
   const confirmBtnStyle: CSSProperties = {
     height: ROW_H,
     padding: '0 18px',
@@ -425,6 +402,37 @@ const totalAmount = useMemo(() => {
     }
   }
 
+  /* Keys */
+  const addKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && addIsComplete) onAddSave();
+    else if (e.key === 'Escape') {
+      (e.currentTarget as HTMLInputElement).blur();
+      setFocus(null);
+      setConfirmIdx(null);
+    }
+  };
+  const escUnfocus = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      (e.currentTarget as HTMLInputElement).blur();
+      onEditCancel();
+    }
+  };
+
+  /* Hover + action visibility */
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const rowActionsVisible = (idx: number, isEditing: boolean, isConfirming: boolean) =>
+    hoveredRow === idx || isEditing || isConfirming;
+
+  const [hoverHdr, setHoverHdr] = useState<SortKey | null>(null);
+
+  /* Open dropdown on cell click (add/edit only) */
+  const openCombobox = (el: HTMLElement) => {
+    const box = el.querySelector<HTMLElement>('[role="combobox"], input');
+    if (!box) return;
+    box.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    box.focus();
+  };
+
   return (
     <Box style={{ margin: '0 auto', width: TABLE_W, overflow: 'visible', color: TEXT_COLOR }}>
       {errorMsg && (
@@ -433,57 +441,59 @@ const totalAmount = useMemo(() => {
         </div>
       )}
 
-      {/* CLICKABLE TITLE */}
-<div
-  onClick={() => setOpen(v => !v)}
-  style={{
-    width: TABLE_W,
-    padding: '12px 16px',
-    background: 'transparent',
-    borderBottom: HEADER_RULE,
-    borderTop: DIVIDER,
-    textAlign: 'center',
-    fontWeight: 700,
-    fontSize: 20,
-    letterSpacing: 1,
-    color: TEXT_COLOR,
-    cursor: 'pointer',
-    userSelect: 'none',
-    position: 'relative',
-  }}
->
-  {/* TOTAL BADGE — NEW */}
-  <div
-    style={{
-      position: 'absolute',
-      left: 40,
-      top: '50%',
-      transform: 'translateY(-50%)',
-      background: '#d40000',
-      color: '#fff',
-      padding: '2px 14px',
-      borderRadius: 10,
-      fontWeight: 700,
-      fontSize: 30,
-      lineHeight: 1,
-    }}
-  >
-    ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-  </div>
+      {/* Title */}
+      <div
+        style={{
+          width: TABLE_W,
+          padding: '12px 16px',
+          background: 'transparent',
+          borderBottom: HEADER_RULE,
+          borderTop: DIVIDER,
+          textAlign: 'center',
+          fontWeight: 700,
+          fontSize: 20,
+          letterSpacing: 1,
+          position: 'relative',
+          color: TEXT_COLOR,
+        }}
+      >
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-label={open ? 'Hide transaction log' : 'Show transaction log'}
+          style={{
+            position: 'absolute',
+            right: 10,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: 28,
+            height: 28,
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+          }}
+        >
+          <span
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              width: 18,
+              height: 2,
+              background: TEXT_COLOR,
+              transform: `translate(-50%, -50%) rotate(${open ? 60 : 0}deg)`,
+              transition: 'transform 200ms ease',
+            }}
+          />
+        </button>
+        TRANSACTION LOG
+      </div>
 
-  TRANSACTION LOG
-</div>
       <div style={{ width: TABLE_W, margin: '0 auto', height: 0, borderBottom: DIVIDER, pointerEvents: 'none' }} />
 
-      {/* BODY */}
+      {/* Body */}
       <div
         ref={bodyRef}
-        style={{
-          overflow: open ? 'visible' : 'hidden',
-          maxHeight: open ? maxH : 0,
-          opacity: open ? 1 : 0,
-          transition: 'max-height 260ms ease, opacity 200ms ease',
-        }}
+        style={{ overflow: open ? 'visible' : 'hidden', maxHeight: open ? maxH : 0, opacity: open ? 1 : 0, transition: 'max-height 260ms ease, opacity 200ms ease' }}
       >
         <div style={{ width: TABLE_W, overflow: 'visible' }}>
           <Table
@@ -491,6 +501,7 @@ const totalAmount = useMemo(() => {
               width: '100%',
               fontSize: BASE_FONT_SIZE,
               borderCollapse: 'collapse',
+              border: 'none',
               background: '#fff',
               tableLayout: 'fixed',
               color: TEXT_COLOR,
@@ -503,7 +514,7 @@ const totalAmount = useMemo(() => {
               <col style={{ width: NOTES_W }} />
             </colgroup>
 
-            {/* HEADER */}
+            {/* Header with PropertyList-like hover */}
             <thead>
               <tr style={{ height: ROW_H, borderBottom: DIVIDER }}>
                 {([
@@ -514,15 +525,12 @@ const totalAmount = useMemo(() => {
                   const active = sortKey === c.key;
                   const icon = !active ? sortIcons.none : (sortDir === 'asc' ? sortIcons.asc : sortIcons.desc);
                   const hovered = hoverHdr === c.key;
+
                   return (
                     <th key={c.key} style={{ ...thNoLines, width: c.width }}>
                       <button
                         type="button"
-                        onClick={() =>
-                          active
-                            ? setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
-                            : (setSortKey(c.key), setSortDir('asc'))
-                        }
+                        onClick={() => active ? setSortDir(sortDir === 'asc' ? 'desc' : 'asc') : (setSortKey(c.key), setSortDir('asc'))}
                         onMouseEnter={() => setHoverHdr(c.key)}
                         onMouseLeave={() => setHoverHdr((k) => (k === c.key ? null : k))}
                         style={{
@@ -538,9 +546,10 @@ const totalAmount = useMemo(() => {
                     </th>
                   );
                 })}
+                {/* NOTES: no hover */}
                 <th style={{ ...thNoLines, width: NOTES_W }}>
-                  <div style={{ ...headerBtn, cursor: 'default', background: 'transparent', boxShadow: 'none' }}>
-                    <span>NOTES</span>
+                  <div style={{ ...headerBtn, cursor: 'default', background: 'transparent', boxShadow: 'none', transform: 'none' }}>
+                    <span style={{ pointerEvents: 'none' }}>NOTES</span>
                   </div>
                 </th>
               </tr>

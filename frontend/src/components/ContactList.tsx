@@ -1,22 +1,35 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+// src/pages/ContactList.tsx
+import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import type { CSSProperties } from 'react';
-import { Box, Button } from '@mantine/core';
-import ContactTypeTag from './ContactTypeTag';
+import { Box, Table, Center, Loader } from '@mantine/core';
 import { Icon, IconButton } from './ui/Icons';
 import UniversalDropdown from './UniversalDropdown';
+import BannerMessage from './ui/BannerMessage';
 
-const ROW_HEIGHT = 68;
-const FONT_SIZE = 18;
-const COL_WIDTH = 250;
-const BLUE = '#2b6fff';
-const BORDER = 1.5;
-const PLACEHOLDER = '#9aa1a8';
-const NAME_BG = '#f3f3f3';
-const NAME_BG_HIGHLIGHT = '#eaf1ff';
+/* ========= Types ========= */
+type Contact = {
+  contact_id: number;
+  name: string;
+  phone: string; // digits only (10)
+  email?: string;
+  contact_type?: string;
+  notes?: string;
+  created_at: number;
+  updated_at: number;
+};
 
-const TABLE_SHADOW = '0 8px 20px rgba(0,0,0,0.10)';
-const API = '/api/contacts';
+type ContactCreatePayload = {
+  name: string;
+  phone: string; // digits only (10)
+  email?: string;
+  contact_type?: string;
+  notes?: string;
+};
 
+type SortKey = 'name' | 'phone' | 'email' | 'contact_type';
+type SortDir = 'asc' | 'desc';
+
+/* ========= Constants ========= */
 const CONTACT_TYPE_OPTIONS = [
   'Personal',
   'Tenant',
@@ -28,1022 +41,824 @@ const CONTACT_TYPE_OPTIONS = [
   'Other',
 ] as const;
 
+const NOTES_BG = '#bec8dfff';
+const API = '/api/contacts';
+const U = (s?: string) => (s ? s.toUpperCase() : '');
+const EMPTY = '—';
+function PlaceholderOrValue({ value }: { value?: any }) {
+  const v = value == null || String(value).trim() === '' ? null : value;
+  return v == null ? <span style={{ color: PLACEHOLDER }}>{EMPTY}</span> : <span>{String(v)}</span>;
+}
+
+
+const FONT_SIZE = 20;
+const PLACEHOLDER = '#9aa1a8';
+const ROW_H = 56;
+const HEADER_FONT_SIZE = 16;
+const HEADER_LINE_HEIGHT = '18px';
+const HEADER_MIN_H = 52;
+const DIVIDER = '1px solid rgba(0,0,0,0.18)';
+const HEADER_RULE = '2px solid rgba(0,0,0,0.25)';
+
+/* widen Type to fit "Emergency Contact" */
+const COLS: Array<{ key: SortKey; title: string; width: number }> = [
+  { key: 'name', title: 'Name', width: 360 },
+  { key: 'phone', title: 'Phone', width: 240 },
+  { key: 'email', title: 'Email', width: 420 },
+  { key: 'contact_type', title: 'Type', width: 240 },
+];
+
+/* ========= Shared styles ========= */
+const headerTh: CSSProperties = {
+  padding: 0,
+  background: 'transparent',
+  color: '#2b2b2b',
+  fontWeight: 800,
+  letterSpacing: 0.3,
+  textAlign: 'center',
+  border: 'none',
+  userSelect: 'none',
+  verticalAlign: 'middle',
+  minHeight: HEADER_MIN_H,
+};
+const cellBase: CSSProperties = {
+  border: 'none',
+  borderRight: DIVIDER,
+  padding: '12px 10px',
+  verticalAlign: 'middle',
+  background: 'transparent',
+  fontSize: FONT_SIZE,
+  color: '#111',
+  height: ROW_H,
+  boxSizing: 'border-box',
+  textAlign: 'center',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
+
+const inputBase: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  fontSize: FONT_SIZE,
+  color: 'inherit',
+  padding: 0,
+  margin: 0,
+  textAlign: 'center',
+};
+
+const sortIcons = {
+  asc: <Icon name="sortUp" />,
+  desc: <Icon name="sortDown" />,
+  none: <Icon name="sort" />,
+} as const;
+
+/* ========= Utils ========= */
 const toDigits = (v: string) => (v || '').replace(/\D/g, '');
 const clamp10 = (d: string) => d.slice(0, 10);
-const fmtUSPhoneFull = (digits: string) => {
-  const d = clamp10(toDigits(digits));
-  if (d.length !== 10) return d;
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-};
-const fmtUSPhoneLive = (digits: string) => {
-  const d = clamp10(toDigits(digits));
+const fmtUSPhoneDisplay = (raw: string) => {
+  const d = clamp10(toDigits(raw));
   if (!d) return '';
-  if (d.length <= 3) return d;
+  if (d.length <= 3) return `(${d}`;
   if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 };
+const opt = (v?: string) => (v && v.trim() ? v.trim() : undefined);
 
-type Contact = {
-  contact_id: number;
-  name: string;
-  phone: string;
-  email?: string;
-  contact_type?: string;
-  notes?: string;
-  created_at: number;
-  updated_at: number;
-};
+/* ========= SmoothCollapse ========= */
+function useMeasuredHeight<T extends HTMLElement>(deps: unknown[] = []) {
+  const ref = useRef<T | null>(null);
+  const [h, setH] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setH(el.scrollHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return { ref, h };
+}
 
-type SortKey = 'name' | 'phone' | 'email' | 'contact_type' | null;
-type SortDir = 'asc' | 'desc';
+function SmoothCollapse({
+  open,
+  children,
+  duration = 260,
+}: {
+  open: boolean;
+  children: React.ReactNode;
+  duration?: number;
+}) {
+  const { ref, h } = useMeasuredHeight<HTMLDivElement>([children, open]);
+  return (
+    <div
+      style={{
+        maxHeight: open ? h : 0,
+        opacity: open ? 1 : 0,
+        overflow: 'hidden',
+        transition: `max-height ${duration}ms cubic-bezier(.2,.8,.2,1), opacity 200ms ease`,
+        willChange: 'max-height, opacity',
+      }}
+    >
+      <div ref={ref}>{children}</div>
+    </div>
+  );
+}
 
+/* ========= Component ========= */
 export default function ContactList() {
-  /* state */
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [editingRowId, setEditingRowId] = useState<number | null>(null);
-  const [frozenNameForSort, setFrozenNameForSort] = useState<string | null>(null);
-  const [hoverRowId, setHoverRowId] = useState<number | null>(null);
+  const [rows, setRows] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // delete confirmation (typed)
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
-  const [confirmText, setConfirmText] = useState<string>('');
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const [hoverHdr, setHoverHdr] = useState<SortKey | null>(null);
+
+  const [draft, setDraft] = useState<{ name: string; phone: string; email: string; contact_type: string; notes: string }>({
+    name: '', phone: '', email: '', contact_type: '', notes: '',
+  });
+  const readyToAdd = Boolean(draft.name.trim() && clamp10(toDigits(draft.phone)).length === 10);
+  const hasNewInput = Object.values(draft).some((v) => String(v ?? '').trim().length > 0);
+  const [savingNew, setSavingNew] = useState(false);
+
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  const [hoverId, setHoverId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [confirmText, setConfirmText] = useState('');
   const confirmInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [phoneDrafts, setPhoneDrafts] = useState<Record<number, string>>({});
-  const [query, setQuery] = useState('');
-  const [sortBy, setSortBy] = useState<SortKey>(null);
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [draft, setDraft] = useState<Omit<Contact, 'created_at' | 'updated_at'>>({
-    contact_id: Date.now(),
-    name: '',
-    phone: '',
-    email: '',
-    contact_type: '',
-    notes: '',
+  const [edit, setEdit] = useState<{ name: string; phone: string; email: string; contact_type: string; notes: string }>({
+    name: '', phone: '', email: '', contact_type: '', notes: '',
   });
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const [hoverAdd, setHoverAdd] = useState(false);
+  const [original, setOriginal] = useState<Contact | null>(null);
 
-  // search icon → expanding search next to the title
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => { if (searchOpen) searchRef.current?.focus(); }, [searchOpen]);
+  const [bannerError, setBannerError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // list open/close (default OPEN now)
-  const [listOpen, setListOpen] = useState(true);
-
-  // mount flag for fade-in on load/navigation
   const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    const t = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(t);
+    const onDocClick = (e: MouseEvent) => {
+      const el = tableWrapRef.current;
+      if (!el) return;
+      if (!el.contains(e.target as Node)) setExpandedIds(new Set());
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  /* load */
+  useEffect(() => { void load(); }, []);
   useEffect(() => {
-    fetch(API)
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.text())))
-      .then((data) => setContacts(Array.isArray(data) ? data : []))
-      .catch((e) => console.error('GET /api/contacts failed', e));
-  }, []);
-
-  /* outside click collapses notes */
-  useEffect(() => {
-    const onDown = (e: MouseEvent | TouchEvent) => {
-      const t = e.target as Node | null;
-      if (listRef.current && t && !listRef.current.contains(t)) {
-        setExpandedId(null);
-        setConfirmDeleteId(null);
-        setConfirmText('');
-      }
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('touchstart', onDown, { passive: true });
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('touchstart', onDown);
-    };
-  }, []);
-
-  // Global Escape: exit delete confirm or edit mode
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (confirmDeleteId !== null) {
-        setConfirmDeleteId(null);
-        setConfirmText('');
-      } else if (editingRowId !== null) {
-        setEditingRowId(null);
-        setFrozenNameForSort(null);
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [confirmDeleteId, editingRowId]);
-
-  // focus DELETE input when confirmation opens
-  useEffect(() => {
-    if (confirmDeleteId !== null) {
+    if (confirmId !== null) {
       setConfirmText('');
       setTimeout(() => confirmInputRef.current?.focus(), 0);
     }
-  }, [confirmDeleteId]);
+  }, [confirmId]);
 
-  /* helpers */
-  const showError = (msg: string) => setErrorMsg(msg);
-  const resetDraft = () =>
-    setDraft({ contact_id: Date.now(), name: '', phone: '', email: '', contact_type: '', notes: '' });
-  const isReadyToAdd = Boolean(draft.name.trim() && toDigits(draft.phone).length === 10);
-  const normalizeName = (v: string) => v.trim().toLowerCase();
-  const nameExists = (name: string, excludeId?: number) =>
-    contacts.some((c) => (excludeId ? c.contact_id !== excludeId : true) && normalizeName(c.name) === normalizeName(name));
+  /* ========= API ========= */
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await fetch(API);
+      if (!r.ok) throw new Error(await r.text());
+      const data = (await r.json()) as any[];
+      const now = Date.now();
+      const arr: Contact[] = Array.isArray(data)
+        ? data.map((c: any) => ({
+          contact_id: Number(c.contact_id ?? now),
+          name: String(c.name ?? ''),
+          phone: clamp10(toDigits(String(c.phone ?? ''))),
+          email: String(c.email ?? ''),
+          contact_type: String(c.contact_type ?? ''),
+          notes: String(c.notes ?? ''),
+          created_at: Number(c.created_at ?? now),
+          updated_at: Number(c.updated_at ?? now),
+        }))
+        : [];
+      setRows(arr);
+      setBannerError(null);
+    } catch (e: any) {
+      setBannerError(e?.message || 'Failed to load contacts.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  async function apiCreate(payload: {
-    name: string; phone: string; email?: string | null; contact_type?: string | null; notes?: string | null;
-  }) {
-    const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  async function apiCreate(payload: ContactCreatePayload): Promise<Contact> {
+    const r = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
     if (!r.ok) throw new Error(await r.text());
     return (await r.json()) as Contact;
   }
-  async function apiPatch(id: number, payload: any) {
-    const r = await fetch(`${API}/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  async function apiPatch(id: number, patch: Partial<Contact>): Promise<Contact> {
+    const r = await fetch(`${API}/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
     if (!r.ok) throw new Error(await r.text());
     return (await r.json()) as Contact;
   }
-  async function apiDelete(id: number) {
+  async function apiDelete(id: number): Promise<void> {
     const r = await fetch(`${API}/${id}`, { method: 'DELETE' });
     if (!r.ok) throw new Error(await r.text());
-    return true;
   }
 
-  /* actions */
-  const handleAdd = async () => {
-    if (!isReadyToAdd) return;
-    if (nameExists(draft.name)) {
-      showError(`Duplicate name blocked: "${draft.name.trim()}" already exists.`);
-      return;
-    }
-    const now = Date.now();
-    const digits = clamp10(toDigits(draft.phone));
-    const tempId = now;
-    const optimistic: Contact = {
-      contact_id: tempId,
-      name: draft.name.trim(),
-      phone: digits,
-      email: draft.email || '',
-      contact_type: draft.contact_type || '',
-      notes: draft.notes || '',
-      created_at: now,
-      updated_at: now,
-    };
-    setContacts((prev) => [...prev, optimistic]);
-    resetDraft();
+  function resetDraft() {
+    setDraft({ name: '', phone: '', email: '', contact_type: '', notes: '' });
+  }
+
+  async function addContact() {
+    if (!readyToAdd) return;
+    setSavingNew(true);
     try {
-      const saved = await apiCreate({
-        name: optimistic.name,
-        phone: optimistic.phone,
-        email: optimistic.email || null,
-        contact_type: optimistic.contact_type || null,
-        notes: optimistic.notes || null,
-      });
-      setContacts((prev) => prev.map((c) => (c.contact_id === tempId ? saved : c)));
-    } catch (e) {
-      setContacts((prev) => prev.filter((c) => c.contact_id !== tempId));
-      showError('Could not add contact. Please try again.');
+      const payload: ContactCreatePayload = {
+        name: draft.name.trim(),
+        phone: clamp10(toDigits(draft.phone)),
+        email: opt(draft.email),
+        contact_type: opt(draft.contact_type),
+        notes: opt(draft.notes),
+      };
+      await apiCreate(payload);
+      resetDraft();
+      await load();
+      setSuccessMsg('Contact created.');
+    } catch (e: any) {
+      setBannerError(e?.message || 'Create failed.');
+    } finally {
+      setSavingNew(false);
     }
-  };
+  }
 
-  const patchContact = async (id: number, patch: Partial<Contact>) => {
-    if (typeof patch.name === 'string' && patch.name.trim().length) {
-      if (nameExists(patch.name, id)) {
-        showError(`Duplicate name blocked: "${patch.name.trim()}" already exists.`);
-        return;
-      }
-    }
-    const toPayload: any = {};
-    if ('name' in patch) toPayload.name = patch.name;
-    if ('phone' in patch) toPayload.phone = patch.phone;
-    if ('email' in patch) toPayload.email = patch.email ?? null;
-    if ('contact_type' in patch) toPayload.contact_type = patch.contact_type ?? null;
-    if ('notes' in patch) toPayload.notes = patch.notes ?? null;
+  function startEdit(row: Contact) {
+    setEditingId(row.contact_id);
+    setOriginal(row);
+    setEdit({
+      name: row.name ?? '',
+      phone: clamp10(toDigits(row.phone ?? '')),
+      email: row.email ?? '',
+      contact_type: row.contact_type ?? '',
+      notes: row.notes ?? '',
+    });
+    setExpandedIds((prev) => new Set(prev).add(row.contact_id));
+  }
 
-    const prev = contacts;
-    const now = Date.now();
-    setContacts((p) => p.map((c) => (c.contact_id === id ? { ...c, ...patch, updated_at: now } : c)));
+  async function saveEditRow(id: number) {
     try {
-      const saved = await apiPatch(id, toPayload);
-      setContacts((p) => p.map((c) => (c.contact_id === id ? saved : c)));
-    } catch (e) {
-      setContacts(prev);
-      showError('Could not save changes. Please try again.');
+      const patch: Partial<Contact> = {
+        name: edit.name.trim(),
+        phone: clamp10(toDigits(edit.phone)),
+        email: opt(edit.email),
+        contact_type: opt(edit.contact_type),
+        notes: opt(edit.notes),
+      };
+      await apiPatch(id, patch);
+      setEditingId(null);
+      setOriginal(null);
+      await load();
+      setSuccessMsg('Saved.');
+    } catch (e: any) {
+      setBannerError(e?.message || 'Save failed.');
     }
-  };
+  }
 
-  const deleteRow = async (id: number) => {
-    const prev = contacts;
-    // clear editing/confirm UI immediately
-    if (expandedId === id) setExpandedId(null);
-    if (editingRowId === id) {
-      setEditingRowId(null);
-      setFrozenNameForSort(null);
-    }
-    setConfirmDeleteId(null);
-    setConfirmText('');
-
-    setContacts((p) => p.filter((c) => c.contact_id !== id));
+  async function doDelete(id: number) {
     try {
       await apiDelete(id);
-    } catch (e) {
-      // rollback
-      setContacts(prev);
-      showError('Could not delete contact. Please try again.');
+      setConfirmId(null);
+      setConfirmText('');
+      setEditingId((cur) => (cur === id ? null : cur));
+      setOriginal(null);
+      await load();
+      setSuccessMsg('Contact deleted.');
+    } catch (e: any) {
+      setBannerError(e?.message || 'Delete failed.');
     }
-  };
+  }
 
-  const toggleEdit = (row: Contact) => {
-    if (editingRowId === row.contact_id) {
-      setEditingRowId(null);
-      setFrozenNameForSort(null);
-      return;
-    }
-    setEditingRowId(row.contact_id);
-    setExpandedId(row.contact_id);
-    setFrozenNameForSort(row.name || '');
-  };
+  function clearAndExitEdit() {
+    setEditingId(null);
+    setOriginal(null);
+  }
 
-  /* layout + derived */
-  const sharedCellBase: CSSProperties = {
-    border: `${BORDER}px solid #222`,
-    padding: '13px',
-    verticalAlign: 'middle',
-    width: COL_WIDTH,
-    maxWidth: COL_WIDTH,
-    minWidth: COL_WIDTH,
-    background: '#fff',
-    fontSize: FONT_SIZE,
-    fontFamily: 'system-ui, Arial, Helvetica, sans-serif',
-    color: '#111',
-  };
-  const inputBaseStyle: CSSProperties = {
-    width: '100%',
-    height: '100%',
-    border: 'none',
-    outline: 'none',
-    padding: 0,
-    margin: 0,
-    fontSize: FONT_SIZE,
-    lineHeight: '1.2',
-    fontFamily: 'inherit',
-    fontWeight: 'inherit',
-    letterSpacing: 'inherit',
-    color: 'inherit',
-    background: 'transparent',
-    display: 'block',
-  };
-  const handleEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      setEditingRowId(null);
-      setFrozenNameForSort(null);
-    }
-  };
-  const tableWidth = useMemo(() => COL_WIDTH * 4, []);
-  const NOTES_OPEN_MAX = ROW_HEIGHT + 26;
-
-  const renderValue = (val: string | undefined, placeholder: string) =>
-    val && String(val).trim().length ? <span>{val}</span> : <span style={{ color: PLACEHOLDER }}>{placeholder}</span>;
-  const effectiveName = (c: Contact) =>
-    editingRowId && c.contact_id === editingRowId && frozenNameForSort !== null
-      ? frozenNameForSort
-      : (c.name || '');
-  // Default order: alphabetical by name (A→Z, case-insensitive)
-  const defaultSort = (arr: Contact[]) =>
-    [...arr].sort((a, b) =>
-      effectiveName(a).toLowerCase().localeCompare(effectiveName(b).toLowerCase())
-    );
-
-  const matchesToken = (c: Contact, token: string) => {
-    const t = token.toLowerCase();
-    const isDigitsOnly = /^\d+$/.test(t);
-
-    const textHit =
-      (c.name || '').toLowerCase().includes(t) ||
-      (c.email || '').toLowerCase().includes(t) ||
-      (c.contact_type || '').toLowerCase().includes(t) ||
-      (c.notes || '').toLowerCase().includes(t);
-
-    const phoneHit = isDigitsOnly
-      ? toDigits(c.phone).includes(t) ||
-        fmtUSPhoneFull(c.phone).toLowerCase().includes(t)
-      : false;
-
-    return textHit || phoneHit;
-  };
+  function toggleExpanded(id: number) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const filteredSorted = useMemo(() => {
-    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-
-    let arr = contacts;
-    if (tokens.length) {
-      arr = contacts.filter((c) => tokens.every((tok) => matchesToken(c, tok)));
-    }
-
-    if (!sortBy) return defaultSort(arr);
-
-    const dir = sortDir === 'asc' ? 1 : -1;
-
-    if (sortBy === 'name') {
-      return [...arr].sort((a, b) => {
-        const va = effectiveName(a).toLowerCase();
-        const vb = effectiveName(b).toLowerCase();
-        if (va < vb) return -1 * dir;
-        if (va > vb) return 1 * dir;
-        return 0;
+    const token = query.trim().toLowerCase();
+    let list = rows;
+    if (token) {
+      list = list.filter((r) => {
+        const phoneStr = fmtUSPhoneDisplay(r.phone).toLowerCase();
+        const combined = `${r.name} ${r.email ?? ''} ${r.contact_type ?? ''} ${phoneStr} ${(r.notes ?? '').toLowerCase()}`;
+        return combined.includes(token);
       });
     }
+    const val = (obj: Contact, key: SortKey) =>
+      key === 'phone' ? toDigits(obj.phone) : String((obj as any)[key] ?? '').toLowerCase();
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return list.slice().sort((a, b) => val(a, sortKey).localeCompare(val(b, sortKey)) * dir);
+  }, [rows, query, sortKey, sortDir]);
 
-    const cmp = (a: Contact, b: Contact) => {
-      let va = '';
-      let vb = '';
-      if (sortBy === 'phone') {
-        va = toDigits(a.phone);
-        vb = toDigits(b.phone);
-      } else {
-        va = ((a as any)[sortBy] || '').toString().toLowerCase();
-        vb = ((b as any)[sortBy] || '').toString().toLowerCase();
-      }
-      if (va < vb) return -1 * dir;
-      if (va > vb) return 1 * dir;
-      return 0;
+  const TABLE_W = useMemo(() => COLS.reduce((s, c) => s + c.width, 0), []);
+
+  /* Header cell with PropertyList hover style */
+  const header = (c: { key: SortKey; title: string; width: number }) => {
+    const active = c.key === sortKey;
+    const onClick = () => {
+      if (!active) { setSortKey(c.key); setSortDir('asc'); }
+      else { setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }
     };
-
-    return [...arr].sort(cmp);
-
-  }, [contacts, query, sortBy, sortDir, editingRowId, frozenNameForSort]);
-
-  // ===================== Sortable header using Icons.tsx =====================
-  const HeaderCell = ({ title, field }: { title: string; field: Exclude<SortKey, null> }) => {
-    const active = sortBy === field;
-
-    const toggleSort = () => {
-      if (!active) {
-        setSortBy(field);
-        setSortDir('asc');
-      } else if (sortDir === 'asc') {
-        setSortDir('desc');
-      } else {
-        setSortBy(null); // back to default alphabetical
-      }
-    };
+    const icon = !active ? sortIcons.none : sortDir === 'asc' ? sortIcons.asc : sortIcons.desc;
+    const hovered = hoverHdr === c.key;
 
     return (
-      <th
-        onClick={toggleSort}
-        title={
-          !active ? `Sort ${title} (A→Z)` :
-          sortDir === 'asc' ? `Sort ${title} (Z→A)` : `Clear sort`
-        }
-        style={{
-          border: '1.5px solid #111',
-          padding: '10px 12px',
-          width: COL_WIDTH,
-          minWidth: COL_WIDTH,
-          maxWidth: COL_WIDTH,
-          background: '#111',
-          color: '#fff',
-          fontWeight: 800,
-          letterSpacing: 0.3,
-          position: 'relative',
-          textAlign: 'center',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        <span>{title}</span>
-        <span
+      <th key={c.key} style={{ ...headerTh, width: c.width, borderBottom: HEADER_RULE }}>
+        <button
+          type="button"
+          onClick={onClick}
+          onMouseEnter={() => setHoverHdr(c.key)}
+          onMouseLeave={() => setHoverHdr((k) => (k === c.key ? null : k))}
           style={{
-            position: 'absolute',
-            right: 10,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            display: 'inline-flex',
+            width: '100%',
+            minHeight: HEADER_MIN_H,
+            padding: '6px 12px',
+            display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            boxShadow: hovered ? '0 6px 16px rgba(0,0,0,0.18)' : 'none', // match PropertyList
+            transition: 'box-shadow 160ms ease',
+            fontWeight: 800,
+            color: '#2b2b2b',
+            textTransform: 'uppercase',
+            lineHeight: HEADER_LINE_HEIGHT,
+            fontSize: HEADER_FONT_SIZE,
+            textAlign: 'center',
+            whiteSpace: 'normal',
+            wordBreak: 'break-word',
           }}
         >
-          {!active ? <Icon name="sort" /> : sortDir === 'asc' ? <Icon name="sortUp" /> : <Icon name="sortDown" />}
-        </span>
+          <span style={{ pointerEvents: 'none', maxWidth: 'calc(100% - 28px)' }}>
+            {c.title.toUpperCase()}
+          </span>
+          <span style={{ pointerEvents: 'none', display: 'inline-flex' }}>{icon}</span>
+        </button>
       </th>
     );
   };
 
-  /* render */
   return (
-    <Box
-      style={{
-        margin: 0,
-        opacity: mounted ? 1 : 0,
-        transform: mounted ? 'translateY(0)' : 'translateY(6px)',
-        transition: 'opacity 420ms ease, transform 420ms ease',
-      }}
-    >
-      {/* Header group mirrors PropertyList's structure */}
-      <Box style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 150 }}>
-          <h2 style={{ fontWeight: 900, letterSpacing: 1, fontSize: 40, color: '#111', margin: 0, lineHeight: 1}}>
-            CONTACT LIST
-          </h2>
-
-          {/* open/close toggle */}
-          <IconButton
-            icon={listOpen ? 'arrowDown' : 'arrowRight'}
-            label={listOpen ? 'Close list' : 'Open list'}
-            size="lg"
-            onClick={() => setListOpen((v) => !v)}
-          />
-
-          {/* Search icon + expanding input + clear button */}
-          <div style={{ display: 'flex', alignItems: 'center', height: 50 }}>
-            {/* Group: search icon + input (flush) */}
-            <div style={{ display: 'flex', alignItems: 'center', height: 50 }}>
-              <IconButton
-                icon="search"
-                label={searchOpen ? 'Close search' : 'Open search'}
-                size="lg"
-                onClick={() => setSearchOpen((v) => !v)}
-              />
-              <div
-                style={{
-                  width: searchOpen ? 300 : 0,
-                  height: 50,
-                  overflow: 'hidden',
-                  transition: 'width 240ms ease',
-                }}
-              >
-                <input
-                  ref={searchRef}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search contacts…"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      setListOpen(true);
-                    }
-                    if (e.key === 'Escape') {
-                      setSearchOpen(false);
-                    }
-                  }}
-                  style={{
-                    width: '100%',
-                    height: 50,
-                    border: '2px solid #111',
-                    borderLeft: 'none',
-                    padding: '0 12px',
-                    fontSize: 16,
-                    outline: 'none',
-                    background: '#fff',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Separate red clear button */}
-            {query && (
-              <IconButton
-                icon="clear"
-                label="Clear search"
-                variant="danger"
-                size="sm"
-                onClick={() => setQuery('')}
-                style={{ marginLeft: 8 }}
-              />
-            )}
+    <Box style={{ position: 'relative', marginTop: 24 }}>
+      <div
+        ref={tableWrapRef}
+        style={{
+          width: '100%',
+          overflow: 'visible',
+          transformOrigin: 'top center',
+          transform: mounted ? 'scaleY(1)' : 'scaleY(0.96)',
+          opacity: mounted ? 1 : 0,
+          transition: 'transform 420ms ease, opacity 420ms ease',
+        }}
+      >
+        <div style={{ position: 'relative', width: TABLE_W, margin: '0 auto', paddingTop: ROW_H + 8 }}>
+          <div style={{ position: 'absolute', right: 0, top: 0 }}>
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search contacts…"
+              style={{ height: ROW_H, minWidth: 320, border: '2px solid #111', padding: '0 12px', fontSize: FONT_SIZE, background: '#fff' }}
+            />
           </div>
-        </div>
 
-        {/* Error banner */}
-        {errorMsg && (
-          <div
-            role="alert"
+          <Table
+            highlightOnHover={false}
             style={{
-              width: tableWidth,
-              border: '2px solid #c33',
-              background: '#ffeaea',
-              color: '#c33',
-              padding: '10px 14px',
-              fontWeight: 800,
-              letterSpacing: 0.2,
-              boxShadow: '0 2px 0 rgba(0,0,0,0.25)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-            }}
-          >
-            <span>{errorMsg}</span>
-            <button
-              onClick={() => setErrorMsg(null)}
-              style={{
-                background: 'transparent',
-                border: '2px solid #c33',
-                color: '#c33',
-                borderRadius: 0,
-                padding: '4px 10px',
-                fontWeight: 900,
-                cursor: 'pointer',
-              }}
-              aria-label="Dismiss"
-              title="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Entry row + Add */}
-        <Box style={{ margin: '0 0 20px 0', display: 'flex', alignItems: 'stretch', gap: 12 }}>
-          <table
-            style={{
-              tableLayout: 'fixed',
+              width: TABLE_W,
+              fontSize: FONT_SIZE,
               borderCollapse: 'collapse',
-              background: '#fff',
-              width: tableWidth,
-              border: `${BORDER * 2}px solid #222`,
-              boxShadow: TABLE_SHADOW,
-              boxSizing: 'border-box',
+              borderSpacing: 0,
+              tableLayout: 'fixed',
+              background: 'transparent',
             }}
           >
+            <colgroup>{COLS.map((c) => <col key={c.key} style={{ width: `${c.width}px` }} />)}</colgroup>
+
+            <thead>
+              <tr style={{ height: 'auto' }}>{COLS.map((c) => header(c))}</tr>
+            </thead>
+
             <tbody>
-              <tr style={{ height: ROW_HEIGHT }}>
-                <td style={sharedCellBase}>
-                  <input
-                    placeholder="Name"
-                    value={draft.name}
-                    style={inputBaseStyle}
-                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  />
-                </td>
-                <td style={sharedCellBase}>
-                  <input
-                    placeholder="Phone"
-                    value={fmtUSPhoneLive(draft.phone)}
-                    style={inputBaseStyle}
-                    onChange={(e) => setDraft({ ...draft, phone: clamp10(toDigits(e.target.value)) })}
-                  />
-                </td>
-                <td style={sharedCellBase}>
-                  <input
-                    placeholder="Email"
-                    value={draft.email}
-                    style={inputBaseStyle}
-                    onChange={(e) => setDraft({ ...draft, email: e.target.value })}
-                  />
-                </td>
-                <td style={{ ...sharedCellBase, position: 'relative', overflow: 'visible' }}>
-                  <UniversalDropdown
-                    value={draft.contact_type ? draft.contact_type : null}
-                    placeholder="Type"
-                    options={CONTACT_TYPE_OPTIONS.map((t) => ({ value: t }))}
-                    onChange={(val) => setDraft({ ...draft, contact_type: val })}
-                    ariaLabel="Contact type"
-                  />
-                  <ContactTypeTag type={draft.contact_type} variant="corner" corner="tr" size={18} />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              {/* Entry row */}
+              <tr style={{ height: ROW_H }}>
+                {COLS.map((c, ci) => {
+                  const last = ci === COLS.length - 1;
+                  let content: React.ReactNode;
 
-          <div
-            style={{ position: 'relative', display: 'inline-block' }}
-            onMouseEnter={() => setHoverAdd(true)}
-            onMouseLeave={() => setHoverAdd(false)}
-          >
-            <Button
-              onClick={handleAdd}
-              disabled={!isReadyToAdd}
-              style={{
-                border: '2px solid #111',
-                borderRadius: 0,
-                background: isReadyToAdd ? '#fff' : '#f2f2f2',
-                color: '#111',
-                fontWeight: 800,
-                fontSize: 16,
-                padding: '0 16px',
-                textTransform: 'uppercase',
-                letterSpacing: 1,
-                height: ROW_HEIGHT + BORDER * 2,
-                alignSelf: 'stretch',
-                cursor: isReadyToAdd ? 'pointer' : 'not-allowed',
-              }}
-            >
-              ADD CONTACT
-            </Button>
-
-            <div
-              style={{
-                position: 'absolute',
-                left: 'calc(100% + 8px)',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                opacity: hoverAdd ? 1 : 0,
-                transition: 'opacity 160ms ease-in-out',
-              }}
-            >
-              <IconButton icon="clear" label="Clear inputs" variant="danger" onClick={resetDraft} />
-            </div>
-          </div>
-        </Box>
-
-        {/* List (collapsible) */}
-        <div
-          style={{
-            // visible while open so tooltips/menus can escape
-            overflow: listOpen ? 'visible' : 'hidden',
-            transition: 'max-height 700ms cubic-bezier(0.2, 0, 0, 1), opacity 450ms ease, transform 450ms ease',
-            maxHeight: listOpen ? 9999 : 0,
-            opacity: listOpen ? 1 : 0,
-            transform: listOpen ? 'translateY(0)' : 'translateY(-4px)',
-            willChange: 'max-height, opacity, transform',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
-          <div ref={listRef} style={{ position: 'relative', width: tableWidth, overflow: 'visible', zIndex: 1 }}>
-            <table
-              style={{
-                tableLayout: 'fixed',
-                width: tableWidth,
-                border: `${BORDER * 2}px solid #222`,
-                borderCollapse: 'collapse',
-                background: '#fff',
-                fontSize: FONT_SIZE,
-                fontFamily: 'system-ui, Arial, Helvetica, sans-serif',
-                overflow: 'visible',
-                boxShadow: TABLE_SHADOW,
-                boxSizing: 'border-box',
-              }}
-            >
-              <thead>
-                <tr style={{ height: 56 }}>
-                  <HeaderCell title="Name" field="name" />
-                  <HeaderCell title="Phone" field="phone" />
-                  <HeaderCell title="Email" field="email" />
-                  <HeaderCell title="Type" field="contact_type" />
-                </tr>
-              </thead>
-
-              <tbody>
-                {filteredSorted.map((c, idx) => {
-                  const isExpanded = expandedId === c.contact_id;
-                  const isEditing = editingRowId === c.contact_id;
-                  const isConfirming = confirmDeleteId === c.contact_id;
-                  const isFocused = isEditing || isConfirming;
-                  const rowHovered = hoverRowId === c.contact_id;
-                  const dimOthers = (editingRowId !== null || confirmDeleteId !== null) && !isFocused;
+                  if (c.key === 'contact_type') {
+                    content = (
+                      <UniversalDropdown
+                        value={draft.contact_type || null}
+                        placeholder="Type"
+                        options={CONTACT_TYPE_OPTIONS.map((t) => ({ value: t, label: t }))}
+                        onChange={(v) => setDraft((p) => ({ ...p, contact_type: v }))}
+                        ariaLabel="Contact type"
+                      />
+                    );
+                  } else if (c.key === 'phone') {
+                    content = (
+                      <input
+                        value={fmtUSPhoneDisplay(draft.phone)}
+                        onChange={(e) => setDraft((p) => ({ ...p, phone: clamp10(toDigits(e.target.value)) }))}
+                        placeholder="(555) 555-5555"
+                        style={{ ...inputBase, fontWeight: 600, fontSize: 16 }}
+                      />
+                    );
+                  } else if (c.key === 'email') {
+                    content = (
+                      <input
+                        value={draft.email}
+                        onChange={(e) => setDraft((p) => ({ ...p, email: e.target.value }))}
+                        placeholder="Email"
+                        style={inputBase}
+                      />
+                    );
+                  } else if (c.key === 'name') {
+                    content = (
+                      <input
+                        value={draft.name}
+                        onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))}
+                        placeholder="ADD NAME"
+                        style={{ ...inputBase, fontWeight: 700 }}
+                      />
+                    );
+                  } else {
+                    content = null;
+                  }
 
                   return (
-                    <React.Fragment key={c.contact_id}>
-                      <tr
+                    <td
+                      key={c.key}
+                      style={{
+                        ...cellBase,
+                        background: 'rgba(0,0,0,0.06)',
+                        borderRight: last ? 'none' : DIVIDER,
+                        ...(last ? { overflow: 'visible', position: 'relative' } : {}),
+                      }}
+                    >
+                      {content}
+
+                      {last && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: 'calc(100% + 8px)',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            display: 'flex',
+                            gap: 8,
+                            alignItems: 'center',
+                            zIndex: 1500,
+                          }}
+                        >
+                          {readyToAdd && (
+                            <IconButton icon="addCircle" label={savingNew ? 'Saving…' : 'Save'} onClick={addContact} disabled={savingNew} />
+                          )}
+                          {Object.values(draft).some((v) => String(v ?? '').trim().length > 0) && (
+                            <IconButton icon="cancel" label="Clear" onClick={resetDraft} />
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+
+              {/* Entry notes */}
+              <tr>
+                <td colSpan={COLS.length} style={{ padding: 0, border: 'none' }}>
+                  <SmoothCollapse open={hasNewInput}>
+                    <div style={{ background: '#fff', fontSize: 16, color: '#111', padding: 8 }}>
+                      <textarea
+                        value={draft.notes}
+                        onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))}
+                        placeholder="Notes…"
+                        rows={3}
                         style={{
-                          height: ROW_HEIGHT,
-                          transform: rowHovered && !dimOthers && !isFocused ? 'translateY(-4px)' : 'none',
-                          transition: 'transform 150ms ease, filter 150ms ease, opacity 120ms ease',
-                          filter: rowHovered && !dimOthers && !isFocused ? 'drop-shadow(0 10px 18px rgba(0,0,0,0.22))' : 'none',
-                          opacity: dimOthers ? 0.45 : 1,
-                          position: 'relative',
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          border: 'none',
+                          outline: 'none',
+                          background: 'transparent',
+                          resize: 'vertical',
                         }}
-                        onMouseEnter={() => setHoverRowId(c.contact_id)}
-                        onMouseLeave={() => setHoverRowId((prev) => (prev === c.contact_id ? null : prev))}
-                      >
-                        <td
-                          style={{
-                            ...sharedCellBase,
-                            background: isEditing ? NAME_BG_HIGHLIGHT : NAME_BG,
-                            fontWeight: 800,
-                            cursor: isEditing ? 'text' : 'pointer',
-                            userSelect: 'none',
-                            borderTop: idx === 0 ? `${BORDER}px solid #222` : `${BORDER * 2}px solid #222`,
-                            position: 'relative',
-                            boxShadow: isEditing ? `inset 0 0 0 3px ${BLUE}` : 'none',
-                            transition: 'background-color 140ms ease, box-shadow 140ms ease',
-                            overflow: 'visible',
-                          }}
-                          onClick={() => { if (!isEditing) setExpandedId((prev) => (prev === c.contact_id ? null : c.contact_id)); }}
-                          title={isEditing ? undefined : 'Click to show notes'}
-                        >
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={c.name || ''}
-                              onChange={(e) => patchContact(c.contact_id, { name: e.target.value })}
-                              onKeyDown={handleEditKeyDown}
-                              placeholder="Name"
-                              style={{ ...inputBaseStyle, fontWeight: 800, background: 'transparent' }}
-                              autoFocus
-                            />
-                          ) : c.name?.trim().length ? (
-                            c.name
-                          ) : (
-                            <span style={{ color: PLACEHOLDER }}>Name</span>
-                          )}
-                        </td>
+                      />
+                    </div>
+                  </SmoothCollapse>
+                </td>
+              </tr>
 
-                        <td
-                          style={{
-                            ...sharedCellBase,
-                            cursor: isEditing ? 'text' : 'default',
-                            userSelect: 'none',
-                            borderTop: idx === 0 ? `${BORDER}px solid #222` : `${BORDER * 2}px solid #222`,
-                            position: 'relative',
-                            background: '#fff',
-                          }}
-                        >
-                          {isEditing ? (
-                            <input
-                              value={
-                                (() => {
-                                  const d = (phoneDrafts[c.contact_id] ?? c.phone ?? '').replace(/\D/g, '').slice(0, 10);
-                                  if (!d) return '';
-                                  if (d.length <= 3) return `(${d}`;
-                                  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
-                                  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-                                })()
+              {/* Data rows */}
+              {loading ? (
+                <tr>
+                  <td colSpan={COLS.length} style={{ background: '#fff' }}>
+                    <Center style={{ minHeight: 96 }}>
+                      <Loader size="lg" />
+                    </Center>
+                  </td>
+                </tr>
+              ) : filteredSorted.length === 0 ? (
+                <tr>
+                  <td colSpan={COLS.length} style={{ textAlign: 'center', padding: 40, color: '#666', fontSize: 22, background: '#fff' }}>
+                    No contacts found.
+                  </td>
+                </tr>
+              ) : (
+                filteredSorted.flatMap((row) => {
+                  const isEditing = editingId === row.contact_id;
+                  const isConfirming = confirmId === row.contact_id;
+                  const isFocused = isEditing || isConfirming;
+                  const rowHovered = hoverId === row.contact_id;
+                  const dimOthers = (editingId ?? confirmId ?? null) !== null && !isFocused;
+                  const isExpanded = expandedIds.has(row.contact_id);
+                  const isHighlighted = rowHovered && !dimOthers && !isFocused;
+
+                  const mainRow = (
+                    <tr
+                      key={`row-${row.contact_id}`}
+                      onMouseEnter={() => setHoverId(row.contact_id)}
+                      onMouseLeave={() => setHoverId((p) => (p === row.contact_id ? null : p))}
+                      style={{ height: ROW_H, transition: 'opacity 120ms ease', opacity: dimOthers ? 0.5 : 1, position: 'relative' }}
+                    >
+                      {COLS.map((c, ci) => {
+                        const first = ci === 0;
+                        const last = ci === COLS.length - 1;
+
+                        const styleCell: CSSProperties = {
+                          ...cellBase,
+                          position: 'relative',
+                          background: isHighlighted ? '#d6e7ffff' : (dimOthers ? '#2b2b2b' : 'transparent'),
+                          color: dimOthers ? '#cfd6dd' : '#111',
+                          // keep the divider light and consistent
+                          borderRight: last ? 'none' : DIVIDER,
+                          // REQUIRED so the action rail outside the cell remains clickable
+                          ...(last ? { overflow: 'visible' } : {}),
+                          ...(first ? { userSelect: 'none', cursor: 'pointer', fontWeight: 700 } : {}),
+                        };
+
+
+                        const toggleIfName = () => {
+                          if (!isEditing && !isConfirming) toggleExpanded(row.contact_id);
+                        };
+
+                        return (
+                          <td
+                            key={c.key}
+                            style={styleCell}
+                            {...(first
+                              ? {
+                                onClick: toggleIfName,
+                                role: 'button',
+                                tabIndex: 0,
+                                onKeyDown: (e: React.KeyboardEvent) => {
+                                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleIfName(); }
+                                },
+                                title: isExpanded ? 'Hide notes' : 'Show notes',
                               }
-                              onChange={(e) => {
-                                const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
-                                setPhoneDrafts((prev) => ({ ...prev, [c.contact_id]: digits }));
-                              }}
-                              onKeyDown={async (e) => {
-                                if (e.key === 'Enter') {
-                                  const digits = (phoneDrafts[c.contact_id] ?? c.phone ?? '').replace(/\D/g, '').slice(0, 10);
-                                  if (digits.length !== 10) return;
-                                  await patchContact(c.contact_id, { phone: digits });
-                                  setPhoneDrafts((prev) => ({ ...prev, [c.contact_id]: digits }));
-                                }
-                                if (e.key === 'Escape') {
-                                  setPhoneDrafts((prev) => ({ ...prev, [c.contact_id]: c.phone ?? '' }));
-                                  (e.currentTarget as HTMLInputElement).blur();
-                                }
-                              }}
-                              onBlur={async () => {
-                                const digits = (phoneDrafts[c.contact_id] ?? c.phone ?? '').replace(/\D/g, '').slice(0, 10);
-                                if (digits && digits !== (c.phone ?? '')) {
-                                  if (digits.length !== 10) return;
-                                  await patchContact(c.contact_id, { phone: digits });
-                                }
-                                setPhoneDrafts((prev) => ({ ...prev, [c.contact_id]: digits || (c.phone ?? '') }));
-                              }}
-                              placeholder="(555) 555-5555"
-                              style={{
-                                width: '100%',
-                                border: 'none',
-                                background: 'transparent',
-                                outline: 'none',
-                                textAlign: 'center',
-                                fontSize: 16,
-                                fontWeight: 600,
-                              }}
-                              autoFocus
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          ) : (
-                            (() => {
-                              const d = String(c.phone || '').replace(/\D/g, '').slice(0, 10);
-                              if (!d) return <span style={{ color: '#999' }}>—</span>;
-                              if (d.length <= 3) return `(${d}`;
-                              if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
-                              return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-                            })()
-                          )}
-                        </td>
-
-                        <td
-                          style={{
-                            ...sharedCellBase,
-                            borderTop: idx === 0 ? `${BORDER}px solid #222` : `${BORDER * 2}px solid #222`,
-                            background: '#fff',
-                          }}
-                        >
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={c.email || ''}
-                              style={inputBaseStyle}
-                              onChange={(e) => patchContact(c.contact_id, { email: e.target.value })}
-                              onKeyDown={handleEditKeyDown}
-                              placeholder="Email"
-                            />
-                          ) : (
-                            renderValue(c.email || '', 'Email')
-                          )}
-                        </td>
-
-                        <td
-                          style={{
-                            ...sharedCellBase,
-                            borderTop: idx === 0 ? `${BORDER}px solid #222` : `${BORDER * 2}px solid #222`,
-                            position: 'relative',
-                            overflow: 'visible',
-                            paddingRight: 0,
-                            background: '#fff',
-                          }}
-                        >
-                          {isEditing ? (
-                            <UniversalDropdown
-                              value={c.contact_type ? c.contact_type : null}
-                              placeholder="Type"
-                              options={CONTACT_TYPE_OPTIONS.map((t) => ({ value: t }))}
-                              onChange={(val) => patchContact(c.contact_id, { contact_type: val })}
-                              ariaLabel="Contact type"
-                            />
-                          ) : (
-                            renderValue(c.contact_type || '', 'Type')
-                          )}
-
-                          {/* Type square */}
-                          <ContactTypeTag type={c.contact_type} variant="corner" corner="tr" size={18} />
-
-                          {/* Row actions to the right */}
-                          <div
-                            style={{
-                              position: 'absolute',
-                              left: 'calc(100% + 8px)',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              display: 'flex',
-                              gap: 10,
-                              alignItems: 'center',
-                              opacity: hoverRowId === c.contact_id || isEditing || isConfirming ? 1 : 0,
-                              transition: 'opacity 160ms ease-in-out',
-                              pointerEvents: 'auto',
-                              zIndex: 1500,
-                            }}
-                            onMouseEnter={() => setHoverRowId(c.contact_id)}
-                            onMouseLeave={() => setHoverRowId((prev) => (prev === c.contact_id ? null : prev))}
+                              : {})}
                           >
-                            {!isConfirming && (
-                              <IconButton
-                                icon="edit"
-                                label={isEditing ? 'Finish Editing' : 'Edit'}
-                                onClick={() => toggleEdit(c)}
-                              />
-                            )}
-
-                            {/* Delete trigger (hidden in confirm mode) */}
-                            {!isConfirming && (
-                              <IconButton
-                                icon="delete"
-                                label="Delete"
-                                variant="danger"
-                                onClick={() => setConfirmDeleteId((prev) => (prev === c.contact_id ? null : c.contact_id))}
-                              />
-                            )}
-
-                            {/* DELETE confirmation input expands to the right */}
-                            <div style={{ position: 'relative', height: ROW_HEIGHT, display: 'flex', alignItems: 'center' }}>
-                              {isConfirming && (
-                                <div
-                                  role="tooltip"
-                                  style={{
-                                    position: 'absolute',
-                                    bottom: ROW_HEIGHT + 10,
-                                    left: 0,
-                                    padding: '8px 10px',
-                                    background: '#111',
-                                    color: '#fff',
-                                    border: '2px solid #111',
-                                    fontWeight: 700,
-                                    letterSpacing: 0.3,
-                                    fontSize: 12,
-                                    whiteSpace: 'nowrap',
-                                    borderRadius: 6,
-                                    boxShadow: '0 8px 18px rgba(0,0,0,0.2)',
-                                    zIndex: 2000,
+                            {isEditing ? (
+                              c.key === 'contact_type' ? (
+                                <UniversalDropdown
+                                  value={edit.contact_type || null}
+                                  placeholder="Type"
+                                  options={CONTACT_TYPE_OPTIONS.map((t) => ({ value: t, label: t }))}
+                                  onChange={(v) => setEdit((p) => ({ ...p, contact_type: v }))}
+                                  ariaLabel="Contact type"
+                                />
+                              ) : c.key === 'phone' ? (
+                                <input
+                                  value={fmtUSPhoneDisplay(edit.phone)}
+                                  onChange={(e) => setEdit((p) => ({ ...p, phone: clamp10(toDigits(e.target.value)) }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && editingId != null) { e.preventDefault(); void saveEditRow(editingId); }
+                                    if (e.key === 'Escape') clearAndExitEdit();
                                   }}
-                                >
-                                  Type DELETE and press Enter to permanently delete.
-                                </div>
-                              )}
+                                  placeholder="(555) 555-5555"
+                                  style={{ ...inputBase, fontWeight: 600, fontSize: 16 }}
+                                />
+                              ) : c.key === 'name' ? (
+                                <input
+                                  value={edit.name}
+                                  onChange={(e) => setEdit((p) => ({ ...p, name: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && editingId != null) { e.preventDefault(); void saveEditRow(editingId); }
+                                    if (e.key === 'Escape') clearAndExitEdit();
+                                  }}
+                                  placeholder="Name"
+                                  style={{ ...inputBase, fontWeight: 700 }}
+                                />
+                              ) : c.key === 'email' ? (
+                                <input
+                                  value={edit.email}
+                                  onChange={(e) => setEdit((p) => ({ ...p, email: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && editingId != null) { e.preventDefault(); void saveEditRow(editingId); }
+                                    if (e.key === 'Escape') clearAndExitEdit();
+                                  }}
+                                  placeholder="Email"
+                                  style={inputBase}
+                                />
+                              ) : null
+                            ) : c.key === 'phone' ? (
+                              (() => {
+                                const val = fmtUSPhoneDisplay(row.phone);
+                                return val ? (
+                                  <span title={val}>{val}</span>
+                                ) : (
+                                  <span style={{ color: PLACEHOLDER }}>{EMPTY}</span>
+                                );
+                              })()
+                            ) : c.key === 'name' ? (
+                              row.name ? (
+                                <span title={row.name}>{U(row.name)}</span>
+                              ) : (
+                                <span style={{ color: PLACEHOLDER }}>{EMPTY}</span>
+                              )
+                            ) : c.key === 'email' ? (
+                              <PlaceholderOrValue value={row.email} />
+                            ) : c.key === 'contact_type' ? (
+                              <PlaceholderOrValue value={row.contact_type} />
+                            ) : null}
 
+                            {last && (
                               <div
                                 style={{
-                                  width: isConfirming ? 80 : 0,
-                                  height: ROW_HEIGHT,
-                                  overflow: 'hidden',
-                                  transition: 'width 180ms ease',
-                                  border: isConfirming ? '2px solid #c33' : '2px solid transparent',
-                                  background: '#fff',
+                                  position: 'absolute',
+                                  left: 'calc(100% + 8px)',
+                                  top: '50%',
+                                  transform: 'translateY(-50%)',
                                   display: 'flex',
+                                  gap: 10,
                                   alignItems: 'center',
-                                  boxSizing: 'border-box',
+                                  opacity: hoverId === row.contact_id || isEditing || isConfirming ? 1 : 0,
+                                  transition: 'opacity 160ms ease-in-out',
+                                  pointerEvents: 'auto',
+                                  zIndex: 1500,
                                 }}
                               >
-                                {isConfirming && (
-                                  <input
-                                    ref={confirmInputRef}
-                                    value={confirmText}
-                                    onChange={(e) => setConfirmText(e.target.value)}
-                                    placeholder="DELETE"
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        if (confirmText.trim().toUpperCase() === 'DELETE') {
-                                          void deleteRow(c.contact_id);
-                                        } else {
-                                          showError('Please type DELETE to confirm.');
-                                        }
-                                      } else if (e.key === 'Escape') {
-                                        setConfirmDeleteId(null);
-                                        setConfirmText('');
-                                      }
-                                    }}
+                                {!isConfirming && (
+                                  <>
+                                    {isEditing ? (
+                                      <>
+                                        {/* Clear first, then Save */}
+                                        <IconButton icon="cancel" label="Clear" onClick={clearAndExitEdit} />
+                                        <IconButton icon="addCircle" label="Save" onClick={() => void saveEditRow(row.contact_id)} />
+                                        <IconButton
+                                          icon="delete"
+                                          label="Delete"
+                                          onClick={() => setConfirmId((prev) => (prev === row.contact_id ? null : row.contact_id))}
+                                        />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <IconButton icon="edit" label="Edit" onClick={() => startEdit(row)} />
+                                        <IconButton
+                                          icon="delete"
+                                          label="Delete"
+                                          onClick={() => setConfirmId((prev) => (prev === row.contact_id ? null : row.contact_id))}
+                                        />
+                                      </>
+                                    )}
+                                  </>
+                                )}
+
+                                <div style={{ position: 'relative', height: ROW_H, display: 'flex', alignItems: 'center' }}>
+                                  <div
                                     style={{
-                                      width: '100%',
-                                      height: '100%',
-                                      border: 'none',
-                                      outline: 'none',
-                                      textAlign: 'center',
-                                      fontWeight: 900,
-                                      letterSpacing: 1,
-                                      textTransform: 'uppercase',
-                                      fontSize: 14,
-                                      fontFamily: 'inherit',
-                                      borderRadius: 0,
-                                      appearance: 'none',
-                                      WebkitAppearance: 'none',
-                                      MozAppearance: 'none',
+                                      width: confirmId === row.contact_id ? 90 : 0,
+                                      height: ROW_H,
+                                      overflow: 'hidden',
+                                      transition: 'width 180ms ease',
+                                      border: confirmId === row.contact_id ? '2px solid #c33' : '2px solid transparent',
+                                      background: '#fff',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      boxSizing: 'border-box',
+                                    }}
+                                  >
+                                    {confirmId === row.contact_id && (
+                                      <input
+                                        ref={confirmInputRef}
+                                        value={confirmText}
+                                        onChange={(e) => setConfirmText(e.target.value)}
+                                        placeholder="DELETE"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' && confirmText.trim().toUpperCase() === 'DELETE') void doDelete(row.contact_id);
+                                          if (e.key === 'Escape') setConfirmId(null);
+                                        }}
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          border: 'none',
+                                          outline: 'none',
+                                          textAlign: 'center',
+                                          fontWeight: 900,
+                                          letterSpacing: 1,
+                                          textTransform: 'uppercase',
+                                          fontSize: 16,
+                                        }}
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+
+                                {confirmId === row.contact_id && (
+                                  <IconButton
+                                    icon="cancel"
+                                    label="Cancel"
+                                    onClick={() => {
+                                      setConfirmId(null);
+                                      setConfirmText('');
                                     }}
                                   />
                                 )}
                               </div>
-                            </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
 
-                            {/* Cancel X (same size as other icons) */}
-                            {isConfirming && (
-                              <IconButton
-                                icon="clear"
-                                label="Cancel delete"
-                                variant="danger"
-                                onClick={() => {
-                                  setConfirmDeleteId(null);
-                                  setConfirmText('');
+                  const notesRow = (
+                    <tr key={`notes-${row.contact_id}`}>
+                      <td colSpan={COLS.length} style={{ padding: 0, border: 'none' }}>
+                        <SmoothCollapse open={isExpanded}>
+                          <div style={{ background: NOTES_BG, borderBottom: '#111', fontSize: 16, color: '#111', padding: 8 }}>
+                            {isEditing ? (
+                              <textarea
+                                value={edit.notes}
+                                onChange={(e) => setEdit((p) => ({ ...p, notes: e.target.value }))}
+                                onKeyDown={(e) => { if (e.key === 'Escape') clearAndExitEdit(); }}
+                                placeholder="Notes…"
+                                rows={3}
+                                style={{
+                                  width: '100%',
+                                  boxSizing: 'border-box',
+                                  border: 'none',
+                                  outline: 'none',
+                                  background: 'transparent',
+                                  resize: 'vertical',
                                 }}
                               />
+                            ) : (
+                              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                {row.notes ? (
+                                  <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{row.notes}</div>
+                                ) : (
+                                  <span style={{ color: PLACEHOLDER }}>{EMPTY}</span>
+                                )}
+                              </div>
                             )}
                           </div>
-                        </td>
-                      </tr>
-
-                      {/* Notes */}
-                      <tr>
-                        <td colSpan={4} style={{ padding: 0, border: 'none' }}>
-                          <div
-                            style={{
-                              overflow: 'hidden',
-                              transition: 'max-height 220ms ease',
-                              maxHeight: isExpanded ? NOTES_OPEN_MAX : 0,
-                              borderLeft: isExpanded ? `${BORDER}px solid #222` : 'none',
-                              borderRight: isExpanded ? `${BORDER}px solid #222` : 'none',
-                              borderBottom: isExpanded ? `${BORDER}px solid #222` : 'none',
-                              background: '#fff',
-                            }}
-                          >
-                            <div
-                              style={{
-                                padding: '13px',
-                                minHeight: ROW_HEIGHT,
-                                display: 'flex',
-                                alignItems: 'center',
-                                boxSizing: 'border-box',
-                              }}
-                            >
-                              {editingRowId === c.contact_id ? (
-                                <input
-                                  type="text"
-                                  value={c.notes || ''}
-                                  onChange={(e) => patchContact(c.contact_id, { notes: e.target.value })}
-                                  placeholder="Add notes..."
-                                  onKeyDown={handleEditKeyDown}
-                                  style={inputBaseStyle}
-                                />
-                              ) : (
-                                renderValue(c.notes || '', 'Add notes...')
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    </React.Fragment>
+                        </SmoothCollapse>
+                      </td>
+                    </tr>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
+
+                  return [mainRow, notesRow];
+                })
+              )}
+            </tbody>
+          </Table>
         </div>
-      </Box>
+      </div>
+
+      {bannerError && <BannerMessage kind="error" message={bannerError} inline maxWidth={TABLE_W} />}
+      {successMsg && <BannerMessage kind="success" message={successMsg} inline={false} autoHideMs={2400} onClose={() => setSuccessMsg(null)} />}
     </Box>
   );
 }

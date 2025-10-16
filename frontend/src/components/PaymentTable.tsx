@@ -1,19 +1,23 @@
 // src/components/PaymentTable.tsx
-import { useState, useEffect, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, type CSSProperties } from 'react';
 import { Table } from '@mantine/core';
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const API_BASE =
-  (import.meta as any)?.env?.VITE_API_BASE?.replace(/\/$/, '') || 'http://localhost:3000';
+const API_BASE = (import.meta as any)?.env?.VITE_API_BASE?.replace(/\/$/, '') || 'http://localhost:3000';
 const API = `${API_BASE}/api/paymentlog`;
 
-const UNIT_WIDTH = 175;                 // narrow columns
-const NOTES_WIDTH = 700;                // wide notes column
+const UNIT_WIDTH = 175;
+const NOTES_WIDTH = 700;
 const TABLE_WIDTH = (UNIT_WIDTH * 5) + NOTES_WIDTH;
 
-// Visuals (distinct from RentRollTable)
-const HILITE_BG = '#eef5ff';
-const FOCUS_RING = 'inset 0 0 0 3px #325dae';
+const ROW_HOVER_BG = '#d6e7ffff';
+const CELL_FOCUS_RING = 'inset 0 0 0 3px #325dae';
+
+const BASE_FONT_SIZE = 16;
+const HEADER_RULE = '2px solid rgba(0,0,0,0.25)';
+const DIVIDER = '1px solid rgba(0,0,0,0.18)';
+const TEXT_COLOR = '#111';
+const YEAR_COLOR = '#fff455ff';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -27,10 +31,11 @@ type PaymentData = {
   amounts: string[];
   checks: string[];
   notes: string[];
-  dates: string[]; // YYYY-MM-DD or ''
+  dates: string[];
 };
 
-type EditTarget = { row: number; col: 'amount' | 'check' | 'notes' | 'date' } | null;
+type CellCol = 'amount' | 'check' | 'notes' | 'date';
+type EditTarget = { row: number; col: CellCol } | null;
 
 function emptyPayment(): PaymentData {
   return {
@@ -57,7 +62,7 @@ const parseIntMaybe = (s: string) => {
 
 const inputCellStyle: CSSProperties = {
   width: '100%',
-  fontSize: 16,
+  fontSize: BASE_FONT_SIZE,
   fontFamily: 'inherit',
   border: 'none',
   background: 'transparent',
@@ -67,6 +72,7 @@ const inputCellStyle: CSSProperties = {
   outline: 'none',
   textAlign: 'center',
   height: '100%',
+  color: TEXT_COLOR,
 };
 
 export default function PaymentTable({ property_id }: PaymentTableProps) {
@@ -76,13 +82,27 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
   const [editValue, setEditValue] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  const [open, setOpen] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [maxH, setMaxH] = useState(0);
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+
+  const measure = useCallback(() => setMaxH(bodyRef.current?.scrollHeight ?? 0), []);
+
+  useLayoutEffect(() => { measure(); }, [measure]);
+  useEffect(() => {
+    const onResize = () => measure();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [measure]);
+
+  // Fetch data per year
   useEffect(() => {
     async function fetchPayment() {
       try {
         const res = await fetch(`${API}?property_id=${property_id}&year=${year}`);
         if (!res.ok) throw new Error(await res.text());
         const dbRows = await res.json();
-
         const pd: PaymentData = emptyPayment();
         (dbRows as any[]).forEach(row => {
           const i = months.findIndex(m => m.toLowerCase() === (row.month ?? '').toLowerCase());
@@ -93,31 +113,31 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
             pd.dates[i] = row.date_paid ? String(row.date_paid).substring(0, 10) : '';
           }
         });
-
         setDataByYear(prev => ({ ...prev, [year]: pd }));
         setSaveError(null);
-      } catch (err: any) {
+        requestAnimationFrame(measure);
+      } catch {
         setDataByYear(prev => ({ ...prev, [year]: emptyPayment() }));
         setSaveError('Failed to load payment log.');
+        requestAnimationFrame(measure);
       }
     }
     if (property_id) fetchPayment();
-  }, [property_id, year]);
+  }, [property_id, year, measure]);
 
   const yearData = dataByYear[year] || emptyPayment();
 
   async function handleSave() {
     if (!editing) return;
     const { row, col } = editing;
-
     const payload = {
       property_id,
       year,
-      month: months[row], // keep original cased month for API
+      month: months[row],
       payment_amount: col === 'amount' ? parseMoney(editValue) : parseMoney(yearData.amounts[row]),
       check_number: col === 'check' ? parseIntMaybe(editValue) : parseIntMaybe(yearData.checks[row]),
       notes: col === 'notes' ? (editValue || null) : (yearData.notes[row] || null),
-      date_paid: (yearData.dates[row] || null),
+      date_paid: yearData.dates[row] || null,
     };
 
     try {
@@ -127,7 +147,6 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(await res.text());
-
       const updated: PaymentData = {
         amounts: [...yearData.amounts],
         checks: [...yearData.checks],
@@ -137,17 +156,17 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
       if (col === 'amount') updated.amounts[row] = editValue;
       if (col === 'check') updated.checks[row] = editValue;
       if (col === 'notes') updated.notes[row] = editValue;
-
       setDataByYear(prev => ({ ...prev, [year]: updated }));
       setEditing(null);
       setEditValue('');
       setSaveError(null);
+      requestAnimationFrame(measure);
     } catch (err: any) {
       setSaveError(`Save failed: ${err.message || 'server error'}`);
     }
   }
 
-  function handleEdit(row: number, col: 'amount' | 'check' | 'notes', value: string) {
+  function handleEdit(row: number, col: CellCol, value: string) {
     setEditing({ row, col });
     setEditValue(value);
     setSaveError(null);
@@ -185,6 +204,7 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
       updated.dates[i] = safeDate ?? '';
       setDataByYear(prev => ({ ...prev, [year]: updated }));
       setSaveError(null);
+      requestAnimationFrame(measure);
     } catch (err: any) {
       setSaveError(`Date save failed: ${err.message || 'server error'}`);
     }
@@ -196,10 +216,8 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
     setEditValue('');
     setSaveError(null);
     setDataByYear(prev => (prev[newYear] ? prev : { ...prev, [newYear]: emptyPayment() }));
+    requestAnimationFrame(measure);
   }
-
-  const focusShadow = (cond: boolean): CSSProperties => (cond ? { boxShadow: FOCUS_RING } : {});
-  const isRowFocused = (row: number) => editing && editing.row === row;
 
   function ColsPx() {
     return (
@@ -215,61 +233,92 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
   }
 
   return (
-    <div style={{ marginTop: 32, width: TABLE_WIDTH }}>
-      {/* NAVIGATION BAR (Prev / Year / Next) */}
+    <div style={{ marginTop: 0, width: TABLE_WIDTH, color: TEXT_COLOR }}>
+      {/* TITLE ROW — clickable, no arrow, no fill */}
       <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          gap: 16,
-          width: TABLE_WIDTH,
-          boxSizing: 'border-box',
-          padding: '12px 16px',
-          background: '#b6b6b6ff',
-          border: '4px solid #000',
-          borderBottom: 'none', // attach to Payment Log bar
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('.year-controls')) return;
+          setOpen(v => !v);
         }}
-      >
-        <button style={arrowButtonStyle} onClick={() => handleYearChange(year - 1)}>
-          &#8592; Prev
-        </button>
-        <span style={yearTextStyle}>{year}</span>
-        <button style={arrowButtonStyle} onClick={() => handleYearChange(year + 1)}>
-          Next &#8594;
-        </button>
-      </div>
-
-      {/* PAYMENT LOG TITLE */}
-      <div
         style={{
           width: TABLE_WIDTH,
           boxSizing: 'border-box',
-          margin: '0 auto 0',
+          margin: '0 auto 8px',
           padding: '12px 16px',
-          background: '#b6b6b6ff',
-          border: '4px solid #000',
-          borderTop: 'none',
+          background: 'transparent',
+          borderTop: HEADER_RULE,
           borderBottom: 'none',
           textAlign: 'center',
-          fontWeight: 900,
-          fontSize: 40,
+          fontWeight: 700,
+          fontSize: 20,
           letterSpacing: 1,
+          position: 'relative',
+          color: TEXT_COLOR,
+          cursor: 'pointer',
+          userSelect: 'none',
         }}
       >
         PAYMENT LOG
+
+        {/* YEAR BADGE + SELECTORS */}
+        <div
+          className="year-controls"
+          style={{
+            position: 'absolute',
+            left: 40,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'transparent',
+            color: TEXT_COLOR,
+            fontWeight: 700,
+            fontSize: 30,
+            lineHeight: 1,
+          }}
+        >
+          <span
+            style={{
+              display: 'inline-block',
+              padding: '4px 10px',
+              background: YEAR_COLOR,
+              color: '#000',
+              borderRadius: 8,
+              userSelect: 'none',
+            }}
+          >
+            {year}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => handleYearChange(year - 1)} style={yearBtnPlain}>▼</button>
+            <button onClick={() => handleYearChange(year + 1)} style={yearBtnPlain}>▲</button>
+          </div>
+        </div>
       </div>
 
-      {/* Error banner */}
+      {/* Divider */}
+      <div
+        style={{
+          width: TABLE_WIDTH,
+          margin: '0 auto 0px',
+          height: 0,
+          borderBottom: HEADER_RULE,
+          pointerEvents: 'none',
+        }}
+      />
+
+      {/* Error Banner */}
       {saveError && (
         <div
           style={{
             width: TABLE_WIDTH,
-            marginBottom: 16,
+            marginBottom: 8,
             padding: '10px 18px',
             background: '#ffeded',
             color: '#a13d3d',
-            border: '1.5px solid #e57e7e',
+            border: '1px solid #e57e7e',
             borderRadius: 6,
             fontWeight: 600,
             fontSize: 16,
@@ -280,218 +329,209 @@ export default function PaymentTable({ property_id }: PaymentTableProps) {
         </div>
       )}
 
-      {/* TABLE */}
-      <Table
-        highlightOnHover
+      {/* Collapsible body */}
+      <div
+        ref={bodyRef}
         style={{
-          width: TABLE_WIDTH,
-          fontSize: 16,
-          fontFamily: 'inherit',
-          borderCollapse: 'collapse',
-          border: '4px solid #000',
-          boxShadow: '0 12px 28px rgba(0,0,0,0.3)',
-          marginBottom: 32,
-          background: '#fff',
-          tableLayout: 'fixed',
+          overflow: open ? 'visible' : 'hidden',
+          maxHeight: open ? maxH : 0,
+          opacity: open ? 1 : 0,
+          transition: 'max-height 260ms ease, opacity 200ms ease',
         }}
       >
-        <ColsPx />
-        <thead>
-          <tr>
-            <th style={thStyle}>Year</th>
-            <th style={thStyle}>Month</th>
-            <th style={thStyle}>Amount</th>
-            <th style={thStyle}>Check #</th>
-            <th style={thStyle}>Date Paid</th>
-            <th style={thStyle}>Notes</th>
-          </tr>
-        </thead>
+        <div style={{ width: TABLE_WIDTH }}>
+          <Table
+            highlightOnHover={false}
+            style={{
+              width: '100%',
+              fontSize: BASE_FONT_SIZE,
+              fontFamily: 'inherit',
+              borderCollapse: 'collapse',
+              border: 'none',
+              marginBottom: 0,
+              background: '#fff',
+              tableLayout: 'fixed',
+              color: TEXT_COLOR,
+            }}
+          >
+            <ColsPx />
 
-        <tbody>
-          {months.map((month, i) => {
-            const rowFocused = isRowFocused(i);
-            const rowStyle = rowFocused ? { outline: '2px solid #325dae', background: HILITE_BG } : {};
-            return (
-              <tr key={month} style={rowStyle}>
-                {/* Year cell — bold, larger font, light gray background */}
-                <td
-                  style={{
-                    ...tdStyle,
-                    fontWeight: 800,
-                    fontSize: 18,
-                    color: '#ffffffff',
-                    background: '#000000ff',
-                  }}
-                >
-                  {year}
-                </td>
-
-                {/* Month cell — bold, larger font, light gray background, UPPERCASE */}
-                <td
-                  style={{
-                    ...tdStyle,
-                    fontWeight: 800,
-                    fontSize: 18,
-                    background: '#b6b6b6ff',
-                  }}
-                >
-                  {month.toUpperCase()}
-                </td>
-
-                {/* Amount */}
-                <td
-                  style={{ ...tdStyle, ...focusShadow(editing?.row === i && editing?.col === 'amount') }}
-                  onClick={() => !editing && handleEdit(i, 'amount', yearData.amounts[i])}
-                >
-                  {editing && editing.row === i && editing.col === 'amount' ? (
-                    <input
-                      type="text"
-                      autoFocus
-                      value={editValue}
-                      onChange={e => setEditValue(e.target.value)}
-                      onBlur={handleSave}
-                      onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel(); }}
-                      style={inputCellStyle}
-                    />
-                  ) : (
-                    yearData.amounts[i]
-                      ? currencyFormatter.format(Number((yearData.amounts[i] || '0').replace(/[,$]/g, '')))
-                      : ''
-                  )}
-                </td>
-
-                {/* Check # */}
-                <td
-                  style={{ ...tdStyle, ...focusShadow(editing?.row === i && editing?.col === 'check') }}
-                  onClick={() => !editing && handleEdit(i, 'check', yearData.checks[i])}
-                >
-                  {editing && editing.row === i && editing.col === 'check' ? (
-                    <input
-                      type="text"
-                      autoFocus
-                      value={editValue}
-                      onChange={e => setEditValue(e.target.value)}
-                      onBlur={handleSave}
-                      onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel(); }}
-                      style={inputCellStyle}
-                    />
-                  ) : (
-                    yearData.checks[i]
-                  )}
-                </td>
-
-                {/* Date Paid */}
-                <td
-                  style={{ ...tdStyle, padding: 0, ...focusShadow(editing?.row === i && editing?.col === 'date') }}
-                  onClick={() => setEditing({ row: i, col: 'date' })}
-                  onDoubleClick={() => {
-                    const d = new Date();
-                    const m = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    const today = `${d.getFullYear()}-${m}-${day}`;
-                    handleDateChange(i, today);
-                  }}
-                  title="Click to select, double-click to fill with today's date"
-                >
-                  <input
-                    type="date"
-                    value={yearData.dates[i]}
-                    onFocus={() => setEditing({ row: i, col: 'date' })}
-                    onBlur={() => setEditing(null)}
-                    onChange={e => handleDateChange(i, e.target.value)}
-                    style={{
-                      ...inputCellStyle,
-                      padding: '11px 18px 11px 0',
-                      cursor: 'pointer',
-                      height: '100%',
-                    }}
-                  />
-                </td>
-
-                {/* Notes */}
-                <td
-                  style={{ ...tdStyle, textAlign: 'left', ...focusShadow(editing?.row === i && editing?.col === 'notes') }}
-                  onClick={() => !editing && handleEdit(i, 'notes', yearData.notes[i])}
-                >
-                  {editing && editing.row === i && editing.col === 'notes' ? (
-                    <input
-                      type="text"
-                      autoFocus
-                      value={editValue}
-                      onChange={e => setEditValue(e.target.value)}
-                      onBlur={handleSave}
-                      onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel(); }}
-                      style={{ ...inputCellStyle, textAlign: 'left' }}
-                    />
-                  ) : (
-                    yearData.notes[i]
-                  )}
-                </td>
+            {/* Header */}
+            <thead>
+              <tr style={{ borderBottom: HEADER_RULE }}>
+                <th style={thNoLines}>Year</th>
+                <th style={thNoLines}>Month</th>
+                <th style={thNoLines}>Amount</th>
+                <th style={thNoLines}>Check #</th>
+                <th style={thNoLines}>Date Paid</th>
+                <th style={thNoLines}>Notes</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </Table>
+            </thead>
+
+            {/* Body */}
+            <tbody>
+              {months.map((month, i) => {
+                const rowBg = hoveredRow === i ? ROW_HOVER_BG : undefined;
+                const cellFocus = (c: CellCol) => editing?.row === i && editing?.col === c;
+
+                return (
+                  <tr
+                    key={month}
+                    style={{ background: rowBg }}
+                    onMouseEnter={() => setHoveredRow(i)}
+                    onMouseLeave={() => setHoveredRow(null)}
+                  >
+                    <td style={{ ...tdVertLight, borderLeft: 'none' }}>
+                      <span style={{ fontWeight: 700 }}>{year}</span>
+                    </td>
+
+                    <td style={{ ...tdVertLight, fontWeight: 800, fontSize: 18 }}>
+                      {month.toUpperCase()}
+                    </td>
+
+                    {/* Amount */}
+                    <td
+                      style={{ ...tdVertLight, ...(cellFocus('amount') ? { boxShadow: CELL_FOCUS_RING } : {}) }}
+                      onClick={() => !editing && handleEdit(i, 'amount', yearData.amounts[i])}
+                    >
+                      {editing && cellFocus('amount') ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={editValue}
+                          onChange={e => setEditValue(e.target.value)}
+                          onBlur={handleSave}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleSave();
+                            if (e.key === 'Escape') handleCancel();
+                          }}
+                          style={inputCellStyle}
+                        />
+                      ) : (
+                        yearData.amounts[i]
+                          ? currencyFormatter.format(Number((yearData.amounts[i] || '0').replace(/[,$]/g, '')))
+                          : ''
+                      )}
+                    </td>
+
+                    {/* Check */}
+                    <td
+                      style={{ ...tdVertLight, ...(cellFocus('check') ? { boxShadow: CELL_FOCUS_RING } : {}) }}
+                      onClick={() => !editing && handleEdit(i, 'check', yearData.checks[i])}
+                    >
+                      {editing && cellFocus('check') ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={editValue}
+                          onChange={e => setEditValue(e.target.value)}
+                          onBlur={handleSave}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleSave();
+                            if (e.key === 'Escape') handleCancel();
+                          }}
+                          style={inputCellStyle}
+                        />
+                      ) : (
+                        yearData.checks[i]
+                      )}
+                    </td>
+
+                    {/* Date */}
+                    <td
+                      style={{ ...tdVertLight, padding: 0 }}
+                      title="Click to select, double-click to fill with today's date"
+                      onDoubleClick={() => {
+                        const d = new Date();
+                        const m = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        handleDateChange(i, `${d.getFullYear()}-${m}-${day}`);
+                      }}
+                    >
+                      <input
+                        type="date"
+                        value={yearData.dates[i]}
+                        onChange={(e) => handleDateChange(i, e.target.value)}
+                        style={{
+                          ...inputCellStyle,
+                          padding: '11px 18px 11px 0',
+                          cursor: 'pointer',
+                          height: '100%',
+                        }}
+                      />
+                    </td>
+
+                    {/* Notes */}
+                    <td
+                      style={{
+                        ...tdVertLight,
+                        borderRight: 'none',
+                        textAlign: 'left',
+                        ...(cellFocus('notes') ? { boxShadow: CELL_FOCUS_RING } : {}),
+                      }}
+                      onClick={() => !editing && handleEdit(i, 'notes', yearData.notes[i])}
+                    >
+                      {editing && cellFocus('notes') ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={editValue}
+                          onChange={e => setEditValue(e.target.value)}
+                          onBlur={handleSave}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleSave();
+                            if (e.key === 'Escape') handleCancel();
+                          }}
+                          style={{ ...inputCellStyle, textAlign: 'left' }}
+                        />
+                      ) : (
+                        yearData.notes[i]
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        </div>
+      </div>
+
+      {/* Component divider */}
+      <div style={{ width: TABLE_WIDTH, height: 0, borderBottom: DIVIDER, margin: '0 auto' }} />
     </div>
   );
 }
 
-// ----------- Styles -----------
-const arrowButtonStyle: CSSProperties = {
-  padding: '10px 28px',
+/* ── Styles ── */
+const thNoLines: CSSProperties = {
+  border: 'none',
+  padding: '12px 14px',
+  background: 'transparent',
+  color: TEXT_COLOR,
   fontWeight: 700,
-  textTransform: 'uppercase',
-  fontFamily: 'inherit',
-  fontSize: 18,
-  background: '#fff',
-  border: '2px solid #111',
-  color: '#111',
-  cursor: 'pointer',
-  borderRadius: 0,
-  boxShadow: 'none',
-  outline: 'none',
-  letterSpacing: 1,
-};
-
-const yearTextStyle: CSSProperties = {
-  fontWeight: 900,
-  fontSize: 25,
-  fontFamily: 'inherit',
-  background: '#a7d0ff',   // distinct from RentRollTable
-  border: '2px solid #111',
-  color: '#111',
-  letterSpacing: 1,
-  textAlign: 'center',
-  padding: '10px 28px',
-  textTransform: 'uppercase',
-  display: 'inline-block',
-};
-
-const thStyle: CSSProperties = {
-  border: '1px solid #111',
-  padding: '14px',
-  background: '#000000ff',   // deep blue vs RentRollTable's orange
-  color: '#fff',
-  fontWeight: 700,
-  fontFamily: 'inherit',
   fontSize: 16,
-  letterSpacing: 'inherit',
   textAlign: 'center',
   textTransform: 'uppercase',
-  whiteSpace: 'normal',
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-word',
 };
 
-const tdStyle: CSSProperties = {
-  border: '1px solid #222',
+const tdVertLight: CSSProperties = {
+  borderLeft: DIVIDER,
+  borderRight: DIVIDER,
   padding: '13px',
-  fontFamily: 'inherit',
   fontSize: 16,
   textAlign: 'center',
   verticalAlign: 'middle',
-  color: 'inherit',
-  whiteSpace: 'normal',
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-word',
+  color: TEXT_COLOR,
+};
+
+const yearBtnPlain: CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  padding: 0,
+  minWidth: 22,
+  height: 22,
+  fontSize: 12,
+  fontWeight: 800,
+  color: TEXT_COLOR,
+  cursor: 'pointer',
 };

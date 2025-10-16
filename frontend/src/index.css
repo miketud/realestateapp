@@ -1,82 +1,43 @@
+@import "@fontsource/montserrat/400.css";
+@import "@fontsource/montserrat/700.css";
+
+/* ---------- Typography baseline ---------- */
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Montserrat', system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
+  /* rendering hints only */
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+html, body, #root {
+  font-family: inherit;
 }
 
+/* App colors kept neutral so components style themselves */
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  color: #111;
+  background: #fff;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
+/* Links */
+a { color: #646cff; text-decoration: none; }
+a:hover { color: #535bf2; }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
+/* Inputs inherit Montserrat */
+input, textarea, select {
   font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  color: inherit;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
-}
-
-input, textarea {
-  font-family: system-ui, Arial, Helvetica, sans-serif !important;
-  font-size: 17px;
-  font-weight: 500;
-  padding: 12px;
-  border: 2px solid #222;
-  border-radius: 0;
-  background: transparent;
-}
-
+/* Optional minimal input variant used in app */
 .input-minimal {
   background: transparent;
   border: none;
@@ -86,10 +47,54 @@ input, textarea {
   transition: border-color 0.16s;
   outline: none;
 }
-.input-minimal:focus {
-  border-bottom: 2.5px solid #4f46e5; /* Modern indigo focus */
+.input-minimal:focus { border-bottom: 2.5px solid #4f46e5; }
+
+/* Placeholder coloring for custom selects */
+.select-menu option { color: #111; }
+.select-menu option[value=""] { color: #9aa1a8; }
+
+/* ---------- Layout consistency ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Tables: center content vertically, stable line-height */
+table { border-collapse: collapse; }
+table th, table td {
+  vertical-align: middle;
+  line-height: 1.2;
+  color: inherit;
 }
 
-/* Make all options black; keep the placeholder (empty value) gray */
-.select-menu option { color: #111; }
-.select-menu option[value=""] { color: #9aa1a8; } /* your PLACEHOLDER */
+/* Mantine Table safety net */
+.mantine-Table-root th,
+.mantine-Table-root td {
+  vertical-align: middle;
+  line-height: 1.2;
+  color: #111;
+}
+
+/* ---------- Icon alignment fixes ---------- */
+/* Make action buttons inline-level and centered */
+button,
+.mantine-ActionIcon-root,
+.button-icon,
+.icon-btn {
+  line-height: 0;                 /* remove baseline */
+  display: inline-flex;           /* inline fixes baseline math */
+  align-items: center;
+  justify-content: center;
+  padding: 0;                     /* no extra shift */
+  vertical-align: middle;         /* align with text in cell */
+}
+
+/* SVGs render as blocks to remove descender gap */
+button svg,
+.mantine-ActionIcon-root svg,
+.button-icon svg,
+.icon-btn svg {
+  display: block;
+  vertical-align: middle;
+}
+
+/* Action cell spacing (optional) */
+td.actions { white-space: nowrap; padding: 4px 6px; }
+td.actions > * + * { margin-left: 6px; }

@@ -1,5 +1,5 @@
 // src/components/ui/Icons.tsx
-import type { CSSProperties } from 'react';
+import { type CSSProperties } from 'react';
 import {
   MdTableView,
   MdOutlineEdit,
@@ -9,15 +9,22 @@ import {
   MdOutlineArrowRight,
   MdOutlineArrowDropDown,
   MdOutlineDashboard,
-  MdAddCircleOutline, // NEW
+  MdAddCircleOutline,
+  MdViewList,
+  MdOutlineRemoveCircle,
+  MdContacts,
+  MdOutlineUploadFile,
 } from 'react-icons/md';
-import { FaSort, FaSortDown, FaSortUp, FaRegMap } from 'react-icons/fa';
+import { FaSort, FaSortDown, FaSortUp, FaRegMap, FaUserMinus } from 'react-icons/fa';
+import { IoMdHome, IoMdAdd } from 'react-icons/io';
+import { AiOutlineExport } from 'react-icons/ai';
 
+/* Registry */
 const ICONS = {
   tableView: MdTableView,
   edit: MdOutlineEdit,
   delete: MdOutlineDelete,
-  clear: MdOutlineClear,
+  cancel: MdOutlineClear, // was "clear"
   search: MdOutlineSearch,
   arrowRight: MdOutlineArrowRight,
   arrowDown: MdOutlineArrowDropDown,
@@ -26,67 +33,92 @@ const ICONS = {
   sort: FaSort,
   sortUp: FaSortUp,
   sortDown: FaSortDown,
-  addCircle: MdAddCircleOutline, // NEW
+  addCircle: MdAddCircleOutline,
+  home: IoMdHome,
+  add: IoMdAdd,
+  view: MdViewList,
+  remove: MdOutlineRemoveCircle,
+  contact: MdContacts,
+  upload: MdOutlineUploadFile,
+  remove_user: FaUserMinus,
+  export: AiOutlineExport,
 } as const;
 
 export type IconName = keyof typeof ICONS;
-type SizeToken = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
-const pxForSize: Record<SizeToken, number> = {
-  xs: 16,
-  sm: 18,
-  md: 22,
-  lg: 28,
-  xl: 34,
-};
+/* Primitive Icon */
+const ICON_PX = 22;
 
 export function Icon({
   name,
-  size = 'md',
+  size = ICON_PX,
   title,
   'aria-hidden': ariaHidden,
   style,
 }: {
   name: IconName;
-  size?: SizeToken | number;
+  size?: number;
   title?: string;
   'aria-hidden'?: boolean;
   style?: CSSProperties;
 }) {
   const Cmp = ICONS[name];
-  const finalSize = typeof size === 'number' ? size : pxForSize[size];
-  return <Cmp size={finalSize} title={title} aria-hidden={ariaHidden} style={style} />;
+  return <Cmp size={size} title={title} aria-hidden={ariaHidden} style={style} />;
 }
 
-/** Square, accessible icon button with consistent styles */
+/* IconButton with per-icon colors */
+type IconButtonColors = { bg: string; border: string; color: string };
+
+const PER_ICON: Record<IconName, IconButtonColors> = {
+  // semantic
+  delete: { bg: '#dc2626', border: '#7f1d1d', color: '#fff' }, // red
+  cancel: { bg: '#f97316', border: '#7c2d12', color: '#fff' }, // orange
+  remove: { bg: '#2563eb', border: '#1e3a8a', color: '#fff' }, // blue
+  addCircle: { bg: '#30a800ff', border: '#111', color: '#ffffffff' },
+
+  
+  // neutral
+  edit: { bg: '#fff', border: '#111', color: '#111' },
+  search: { bg: '#fff', border: '#111', color: '#111' },
+  arrowRight: { bg: '#fff', border: '#111', color: '#111' },
+  arrowDown: { bg: '#fff', border: '#111', color: '#111' },
+  dashboard: { bg: '#fff', border: '#111', color: '#111' },
+  map: { bg: '#fff', border: '#111', color: '#111' },
+  sort: { bg: '#fff', border: '#111', color: '#111' },
+  sortUp: { bg: '#fff', border: '#111', color: '#111' },
+  sortDown: { bg: '#fff', border: '#111', color: '#111' },
+  home: { bg: '#fff', border: '#111', color: '#111' },
+  add: { bg: '#fff', border: '#111', color: '#111' },
+  view: { bg: '#fff', border: '#111', color: '#111' },
+  contact: { bg: '#fff', border: '#111', color: '#111' },
+  upload: { bg: '#fff', border: '#111', color: '#111' },
+  tableView: { bg: '#fff', border: '#111', color: '#111' },
+  remove_user: { bg: '#fff', border: '#111', color: '#111' },
+  export: { bg: '#fff', border: '#111', color: '#111' },
+};
+
 export function IconButton({
   icon,
   label,
   onClick,
   disabled,
-  size = 'md', // controls square + icon size
-  variant = 'default',
+  boxSize = 44,
+  iconSize = ICON_PX,
   style,
   title,
+  colors,
 }: {
   icon: IconName;
   label: string;
   onClick?: () => void;
   disabled?: boolean;
-  size?: 'sm' | 'md' | 'lg';
-  variant?: 'default' | 'danger' | 'ghost' | 'success'; // success = green (NEW)
+  boxSize?: number;
+  iconSize?: number;
   style?: CSSProperties;
   title?: string;
+  colors?: Partial<IconButtonColors>;
 }) {
-  const squarePx = size === 'sm' ? 36 : size === 'lg' ? 50 : 44;
-
-  const palette =
-    {
-      default: { bg: '#fff',     border: '#111', color: '#111' },
-      danger:  { bg: '#ffe9e9',  border: '#c33', color: '#c33' },
-      ghost:   { bg: 'transparent', border: '#111', color: '#111' },
-      success: { bg: '#e9f7f2',  border: '#29a376', color: '#29a376' }, // NEW
-    }[variant] ?? { bg: '#fff', border: '#111', color: '#111' };
+  const tone = { ...PER_ICON[icon], ...(colors || {}) };
 
   return (
     <button
@@ -96,21 +128,23 @@ export function IconButton({
       onClick={onClick}
       disabled={disabled}
       style={{
-        width: squarePx,
-        height: squarePx,
-        display: 'grid',
-        placeItems: 'center',
+        width: boxSize,
+        height: boxSize,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         lineHeight: 0,
-        borderRadius: 0,
+        verticalAlign: 'middle',
         cursor: disabled ? 'not-allowed' : 'pointer',
-        border: `2px solid ${palette.border}`,
-        background: palette.bg,
-        color: palette.color,
+        border: `2px solid ${tone.border}`,
+        background: tone.bg,
+        color: tone.color,
         boxSizing: 'border-box',
+        borderRadius: 0,
         ...style,
       }}
     >
-      <Icon name={icon} size={size === 'sm' ? 18 : size === 'lg' ? 28 : 22} aria-hidden />
+      <Icon name={icon} size={iconSize} aria-hidden style={{ display: 'block' }} />
     </button>
   );
 }

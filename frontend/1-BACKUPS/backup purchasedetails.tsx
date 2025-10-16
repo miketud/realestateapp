@@ -12,54 +12,23 @@ import LoanDetailsTable from './LoanDetailsTable';
 import BannerMessage from './BannerMessage';
 import UniversalDropdown, { type DropdownOption as UDOption } from './UniversalDropdown';
 
-/* ── Layout / visuals ── */
+/* ───────── Layout / visuals ───────── */
 const MAIN_COL_WIDTH = 175;
 const BASE_FONT_SIZE = 16;
-const HEADER_FONT_SIZE = 16;
 const MAX_COLS = 9;
 const TABLE_WIDTH = MAIN_COL_WIDTH * MAX_COLS;
-
-const DIVIDER = '1px solid rgba(0,0,0,0.18)';
-const HEADER_RULE = '2px solid rgba(0,0,0,0.25)';
-const EMPTY_BG = 'rgba(0,0,0,0.06)';
-const HILITE_BG = 'rgba(0, 102, 255, 0.10)';
 const FOCUS_RING = 'inset 0 0 0 3px #325dae';
 
-const ROW_H = 52;
-const HEADER_H = ROW_H;
-
 const cellStyle: React.CSSProperties = {
-  border: 'none',
-  borderRight: DIVIDER,
-  padding: '14px 13px',
+  border: '1px solid #222',
+  padding: '13px',
   position: 'relative',
   textAlign: 'center',
-  background: 'transparent',
+  background: '#fff',
   fontSize: BASE_FONT_SIZE,
   whiteSpace: 'normal',
   overflowWrap: 'anywhere',
   wordBreak: 'break-word',
-  height: ROW_H,
-  verticalAlign: 'middle',
-};
-
-const headerStyle: React.CSSProperties = {
-  border: 'none',
-  borderRight: 'none',
-  borderBottom: HEADER_RULE,
-  padding: '6px 8px',
-  background: 'transparent',
-  color: '#2b2b2b',
-  fontWeight: 800,
-  textTransform: 'uppercase',
-  textAlign: 'center',
-  fontSize: HEADER_FONT_SIZE,
-  height: HEADER_H,
-  lineHeight: '18px',
-  whiteSpace: 'normal',
-  wordBreak: 'break-word',
-  overflow: 'hidden',
-  verticalAlign: 'middle',
 };
 
 const inputCellStyle: React.CSSProperties = {
@@ -95,7 +64,7 @@ const COLUMNS: Column[] = [
   { key: 'closing_date', label: 'Closing Date', type: 'date' },
   { key: 'purchase_price', label: 'Purchase Price', type: 'number' },
   { key: 'financing_type', label: 'Financing Type', type: 'text' },
-  { key: 'acquisition_type', label: 'Acquisition', type: 'text' },
+  { key: 'acquisition_type', label: 'Acquisition Type', type: 'text' },
   { key: 'buyer', label: 'Buyer', type: 'text' },
   { key: 'seller', label: 'Seller', type: 'text' },
   { key: 'down_payment', label: 'Down Payment', type: 'number' },
@@ -116,6 +85,7 @@ function ColsPx() {
   );
 }
 
+/* ───────── Component ───────── */
 export default function PurchaseDetailsTable({ property_id }: { property_id: number }) {
   const [data, setData] = useState<PurchaseDetails | null>(null);
   const [editKey, setEditKey] = useState<keyof PurchaseDetails | null>(null);
@@ -123,9 +93,11 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
   const [propertyCreatedAt, setPropertyCreatedAt] = useState<string | null>(null);
   const creatingRef = useRef(false);
 
+  // Collapsible state
   const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [maxH, setMaxH] = useState(0);
@@ -137,6 +109,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
     return () => window.removeEventListener('resize', onResize);
   }, [measure]);
 
+  // Load contacts → options for Buyer/Seller
   const [contactNames, setContactNames] = useState<string[]>([]);
   useEffect(() => {
     fetch('/api/contacts')
@@ -147,8 +120,12 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
       })
       .catch(() => void 0);
   }, []);
-  const CONTACT_OPTS = useMemo<UDOption[]>(() => [{ value: '', label: '—' }, ...contactNames.map((n) => ({ value: n }))], [contactNames]);
+  const CONTACT_OPTS = useMemo<UDOption[]>(
+    () => [{ value: '', label: '—' }, ...contactNames.map((n) => ({ value: n }))],
+    [contactNames]
+  );
 
+  // property.created_at
   useEffect(() => {
     if (!property_id) return;
     fetch(`/api/properties/${property_id}`)
@@ -160,6 +137,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
       .catch(() => {});
   }, [property_id]);
 
+  // load purchase details
   useEffect(() => {
     setLoading(true);
     fetch(`/api/purchase_details?property_id=${property_id}`)
@@ -179,6 +157,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
       .finally(() => setLoading(false));
   }, [property_id]);
 
+  // auto-create if missing
   useEffect(() => {
     if (loading || data || !propertyCreatedAt) return;
     if (creatingRef.current) return;
@@ -220,6 +199,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
       });
   }, [loading, data, property_id, propertyCreatedAt]);
 
+  /* Editing */
   function startEdit(key: keyof PurchaseDetails) {
     if (!data || saving) return;
     setSaveError(null);
@@ -276,21 +256,19 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
   const labelBarStyle: React.CSSProperties = {
     width: TABLE_WIDTH,
     boxSizing: 'border-box',
-    margin: '0 auto 8px',
+    margin: '0 auto 0',
     padding: '12px 16px',
-    background: 'transparent',
-    borderTop: HEADER_RULE,
-    border: 'none',
+    background: '#b6b6b6ff',
+    border: '1px solid #000',
+    borderBottom: open ? 'none' : '1px solid #000',
     textAlign: 'center',
     fontWeight: 700,
     fontSize: 20,
     letterSpacing: 1,
     position: 'relative',
-    color: '#111',
-    cursor: 'pointer',
-    userSelect: 'none',
   };
 
+  // Static dropdowns
   const FINANCING_OPTS: UDOption[] = [
     { value: '', label: '—' },
     { value: 'Cash' },
@@ -312,29 +290,48 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
     <div style={{ margin: 0 }}>
       {saveError && (
         <div style={{ width: TABLE_WIDTH, margin: '0 auto 24px' }}>
-          <BannerMessage message={saveError} type="error" autoCloseMs={5000} onDismiss={() => setSaveError(null)} />
+          <BannerMessage
+            message={saveError}
+            type="error"
+            autoCloseMs={5000}
+            onDismiss={() => setSaveError(null)}
+          />
         </div>
       )}
 
-      {/* CLICKABLE TITLE (NO ARROW, NO BG) */}
-      <div
-        onClick={() => setOpen((v) => !v)}
-        style={labelBarStyle}
-      >
+      {/* LABEL + TOGGLE */}
+      <div style={labelBarStyle}>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-label={open ? 'Hide purchase details' : 'Show purchase details'}
+          style={{
+            position: 'absolute',
+            right: 10,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: 28,
+            height: 28,
+            border: 'none',
+            background: 'transparent',
+            padding: 0,
+            cursor: 'pointer',
+          }}
+        >
+          <span
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              width: 18,
+              height: 2,
+              background: '#000',
+              transform: `translate(-50%, -50%) rotate(${open ? 60 : 0}deg)`,
+              transition: 'transform 200ms ease',
+            }}
+          />
+        </button>
         PURCHASE DETAILS
       </div>
-
-      {/* Divider under title */}
-      <div
-        style={{
-          width: TABLE_WIDTH,
-          margin: '0 auto 0',
-          height: 0,
-          borderBottom: HEADER_RULE,
-          boxShadow: '0 8px 16px rgba(0,0,0,0.12)',
-          pointerEvents: 'none',
-        }}
-      />
 
       {/* Collapsible body */}
       <div
@@ -347,91 +344,128 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
         }}
       >
         <div style={{ width: TABLE_WIDTH, margin: '0 auto 0' }}>
-                    <Table
-            highlightOnHover={false}
-            withColumnBorders={false}
+          <Table
+            striped
+            highlightOnHover
+            withColumnBorders
             style={{
               fontSize: BASE_FONT_SIZE,
               borderCollapse: 'collapse',
-              borderSpacing: 0,
-              width: TABLE_WIDTH,
-              tableLayout: 'fixed',
+              border: '1px solid #000',
+              boxShadow: '0 12px 28px rgba(0,0,0,0.3)',
               background: '#fff',
+              width: TABLE_WIDTH,
               textAlign: 'center',
+              tableLayout: 'fixed',
             }}
           >
             <ColsPx />
+
             <thead>
               <tr>
                 {MAIN_COLUMNS.map((col) => (
-                  <th key={col.key} style={{ ...headerStyle, width: MAIN_COL_WIDTH }}>
-                    {col.label.toUpperCase()}
+                  <th
+                    key={col.key}
+                    style={{
+                      background: '#000',
+                      color: '#fff',
+                      fontWeight: 700,
+                      padding: '13px',
+                      border: '1px solid #222',
+                      textAlign: 'center',
+                      letterSpacing: 1,
+                      textTransform: 'uppercase',
+                      width: MAIN_COL_WIDTH,
+                      minWidth: MAIN_COL_WIDTH,
+                      maxWidth: MAIN_COL_WIDTH,
+                    }}
+                  >
+                    {col.label}
                   </th>
                 ))}
               </tr>
             </thead>
 
             <tbody>
+              {/* Main row */}
               <tr>
-                {MAIN_COLUMNS.map((col, idx) => {
+                {MAIN_COLUMNS.map((col) => {
                   const v = data?.[col.key];
                   const isEditing = editKey === col.key;
-                  const isEmpty = v === null || v === undefined || String(v).trim() === '';
 
                   const baseTdStyle: React.CSSProperties = {
                     ...cellStyle,
                     width: MAIN_COL_WIDTH,
+                    minWidth: MAIN_COL_WIDTH,
+                    maxWidth: MAIN_COL_WIDTH,
                     cursor: 'pointer',
-                    background: isEmpty ? EMPTY_BG : 'transparent',
-                    ...(isEditing ? { boxShadow: FOCUS_RING, background: HILITE_BG } : {}),
-                    ...(idx === MAIN_COLUMNS.length - 1 ? { borderRight: 'none' } : {}),
+                    ...(isEditing ? { boxShadow: FOCUS_RING, background: '#eef5ff' } : {}),
                   };
 
                   if (!isEditing) {
                     return (
-                      <td key={col.key} style={baseTdStyle} onClick={() => startEdit(col.key)}>
-                        {isEmpty
+                      <td
+                        key={col.key}
+                        style={baseTdStyle}
+                        onClick={() => startEdit(col.key)}
+                      >
+                        {v === null || v === undefined || String(v).trim() === ''
                           ? <span style={{ color: '#bbb' }}>—</span>
                           : col.type === 'date'
-                            ? String(v).slice(0, 10)
-                            : col.type === 'number'
-                              ? `$${Number(v).toLocaleString()}`
-                              : String(v)}
+                          ? String(v).slice(0, 10)
+                          : col.type === 'number'
+                          ? `$${Number(v).toLocaleString()}`
+                          : String(v)}
                       </td>
                     );
                   }
 
+                  // Financing Type
                   if (col.key === 'financing_type') {
                     return (
                       <td key={col.key} style={baseTdStyle}>
-                        <UniversalDropdown value={editValue ?? ''} placeholder="Financing Type" options={FINANCING_OPTS} onChange={(val) => saveEdit(col.key, val)} ariaLabel="Financing Type" />
+                        <UniversalDropdown
+                          value={editValue ?? ''}
+                          placeholder="Financing Type"
+                          options={FINANCING_OPTS}
+                          onChange={(val) => saveEdit(col.key, val)}
+                          ariaLabel="Financing Type"
+                        />
                       </td>
                     );
                   }
 
+                  // Acquisition Type
                   if (col.key === 'acquisition_type') {
                     return (
                       <td key={col.key} style={baseTdStyle}>
-                        <UniversalDropdown value={editValue ?? ''} placeholder="Acquisition" options={ACQ_OPTS} onChange={(val) => saveEdit(col.key, val)} ariaLabel="Acquisition" />
+                        <UniversalDropdown
+                          value={editValue ?? ''}
+                          placeholder="Acquisition Type"
+                          options={ACQ_OPTS}
+                          onChange={(val) => saveEdit(col.key, val)}
+                          ariaLabel="Acquisition Type"
+                        />
                       </td>
                     );
                   }
 
+                  // Buyer / Seller
                   if (col.key === 'buyer' || col.key === 'seller') {
                     return (
                       <td key={col.key} style={baseTdStyle}>
                         <UniversalDropdown
                           value={editValue ?? ''}
                           placeholder={col.key === 'buyer' ? 'Buyer' : 'Seller'}
-                          options={[{ value: '', label: '—' }, ...CONTACT_OPTS]}
+                          options={CONTACT_OPTS}
                           onChange={(val) => saveEdit(col.key, val)}
                           ariaLabel={col.key === 'buyer' ? 'Buyer' : 'Seller'}
-                          searchable
                         />
                       </td>
                     );
                   }
 
+                  // Generic editor
                   return (
                     <td key={col.key} style={baseTdStyle}>
                       <input
@@ -452,20 +486,29 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
                 })}
               </tr>
 
+              {/* Notes row */}
               <tr>
-                <td style={{ ...headerStyle, width: MAIN_COL_WIDTH }}>{'NOTES'}</td>
+                <td
+                  style={{
+                    ...cellStyle,
+                    background: '#ece8d4',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    width: MAIN_COL_WIDTH,
+                    minWidth: MAIN_COL_WIDTH,
+                    maxWidth: MAIN_COL_WIDTH,
+                  }}
+                >
+                  Notes
+                </td>
+
                 <td
                   colSpan={MAX_COLS - 1}
                   style={{
                     ...cellStyle,
                     textAlign: 'left',
                     cursor: 'pointer',
-                    background:
-                      data?.notes === null || data?.notes === undefined || String(data?.notes).trim() === ''
-                        ? EMPTY_BG
-                        : 'transparent',
-                    borderRight: 'none',
-                    ...(editKey === 'notes' ? { boxShadow: FOCUS_RING, background: HILITE_BG } : {}),
+                    ...(editKey === 'notes' ? { boxShadow: FOCUS_RING, background: '#eef5ff' } : {}),
                   }}
                   onClick={() => startEdit('notes')}
                 >
@@ -499,7 +542,7 @@ export default function PurchaseDetailsTable({ property_id }: { property_id: num
           const ft = (data?.financing_type ?? '').toLowerCase();
           const showLoanDetails = ft.includes('loan') || ft.includes('seller financing');
           return showLoanDetails ? (
-            <div style={{ margin: '0 auto 0', width: '100%' }}>
+            <div style={{ marginTop: 0, width: '100%' }}>
               <LoanDetailsTable property_id={property_id} />
             </div>
           ) : null;
