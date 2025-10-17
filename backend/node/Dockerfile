@@ -1,20 +1,20 @@
-# Lightweight Node environment
 FROM node:20-alpine
 
-# Set working directory inside container
 WORKDIR /app
 
-# Copy dependency manifests first for caching
+# Copy only package files first for caching
 COPY package*.json ./
 
-# Install dependencies
 RUN npm install
 
-# Copy the rest of the backend code
+# Copy the rest of the app (now excluding node_modules via .dockerignore)
 COPY . .
 
-# Expose backend port
-EXPOSE 3000
+# Generate Prisma client inside Docker
+RUN npx prisma generate
 
-# Default command
-CMD ["npm", "run", "start"]
+# Build TypeScript → JavaScript
+RUN npm run build
+
+EXPOSE 3000
+CMD ["node", "dist/server.js"]
