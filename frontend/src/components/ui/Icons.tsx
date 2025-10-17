@@ -14,6 +14,7 @@ import {
   MdOutlineRemoveCircle,
   MdContacts,
   MdOutlineUploadFile,
+  MdInfoOutline,
 } from 'react-icons/md';
 import { FaSort, FaSortDown, FaSortUp, FaRegMap, FaUserMinus } from 'react-icons/fa';
 import { IoMdHome, IoMdAdd } from 'react-icons/io';
@@ -42,6 +43,7 @@ const ICONS = {
   upload: MdOutlineUploadFile,
   remove_user: FaUserMinus,
   export: AiOutlineExport,
+  info: MdInfoOutline,
 } as const;
 
 export type IconName = keyof typeof ICONS;
@@ -95,6 +97,7 @@ const PER_ICON: Record<IconName, IconButtonColors> = {
   tableView: { bg: '#fff', border: '#111', color: '#111' },
   remove_user: { bg: '#fff', border: '#111', color: '#111' },
   export: { bg: '#fff', border: '#111', color: '#111' },
+  info: { bg: '#fff', border: '#111', color: '#111' },
 };
 
 export function IconButton({

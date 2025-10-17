@@ -386,6 +386,18 @@ if (b.date_deposited) {
     }
   });
 
+  app.delete('/api/transactions/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  try {
+    await prisma.transaction.delete({ where: { transaction_id: Number(id) } });
+    return reply.status(204).send();
+  } catch (e: any) {
+    if (e?.code === 'P2025') return reply.status(404).send({ error: 'Not found' });
+    app.log.error(e);
+    return reply.status(500).send({ error: 'Delete failed' });
+  }
+});
+
   app.post('/api/transactions', async (req, reply) => {
     const { property_id, amount, date, transaction_type, notes } = req.body as any;
     if (!property_id || amount == null || !date) {

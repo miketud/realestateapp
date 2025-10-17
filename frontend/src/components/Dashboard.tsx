@@ -8,6 +8,7 @@ import PropertyList from './PropertyList';
 import { Icon } from './ui/Icons';
 import MapOSM from './MapOSM';
 import { AnimatePresence, motion } from 'framer-motion';
+import Info from './Info';
 
 const APP_WIDTH = 1575;
 const BORDER_THICKNESS = 8;
@@ -54,7 +55,7 @@ function NavCell({
         onClick={onClick}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}
         style={base}
-        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = HOVER_BG}}
+        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = HOVER_BG; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = active ? '#ffef09' : '#fff'; }}
       >
         {label}
@@ -67,7 +68,7 @@ function NavCell({
 function CleanIconButton({
   name, active, onClick, title,
 }: {
-  name: 'home' | 'add' | 'search' | 'map';
+  name: 'home' | 'add' | 'search' | 'map' | 'info';
   active?: boolean;
   onClick?: () => void;
   title: string;
@@ -82,46 +83,47 @@ function CleanIconButton({
     if (name === 'home') {
       if (timerRef.current) window.clearTimeout(timerRef.current);
       setFlash(true);
-      timerRef.current = window.setTimeout(() => setFlash(false), 2000); // 1s flash
+      timerRef.current = window.setTimeout(() => setFlash(false), 2000); // 1s flash visual (current timing = 2s)
     }
     onClick?.();
   };
 
-return (
-  <button
-    type="button"
-    title={title}
-    aria-label={title}
-    onClick={handleClick}
-    onMouseEnter={(e) => {
-      if (!active && !flash) e.currentTarget.style.background = HOVER_BG;
-    }}
-    onMouseLeave={(e) => {
-      e.currentTarget.style.background = (active || flash) ? '#000' : 'transparent';
-    }}
-    style={{
-      width: ROW_H,
-      height: ROW_H,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: (active || flash) ? '#000' : 'transparent',
-      border: 'none',
-      cursor: 'pointer',
-      transition: 'background-color 140ms ease',
-    }}
-  >
-    <Icon
-      name={name}
-      size={ICON_SIZE}
-      style={{
-        color: (active || flash) ? '#ffef09' : '#111',
-        transition: 'color 140ms ease',
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={handleClick}
+      onMouseEnter={(e) => {
+        if (!active && !flash) e.currentTarget.style.background = HOVER_BG;
       }}
-      aria-hidden
-    />
-  </button>
-  )};
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = (active || flash) ? '#000' : 'transparent';
+      }}
+      style={{
+        width: ROW_H,
+        height: ROW_H,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: (active || flash) ? '#000' : 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        transition: 'background-color 140ms ease',
+      }}
+    >
+      <Icon
+        name={name}
+        size={ICON_SIZE}
+        style={{
+          color: (active || flash) ? '#ffef09' : '#111',
+          transition: 'color 140ms ease',
+        }}
+        aria-hidden
+      />
+    </button>
+  );
+}
 
 export default function Dashboard() {
   /* single layer */
@@ -137,12 +139,19 @@ export default function Dashboard() {
   /* force PropertyList remount on each PROPERTIES click */
   const [propertiesKey, setPropertiesKey] = useState(0);
 
-  /* global map icon reflect */
+  /* global map & info icon reflect */
   const [mapActive, setMapActive] = useState(false);
+  const [infoActive, setInfoActive] = useState(false);
+
   useEffect(() => {
     const h = (e: any) => setMapActive(!!e?.detail?.open);
     window.addEventListener('pm:map-state', h as EventListener);
     return () => window.removeEventListener('pm:map-state', h as EventListener);
+  }, []);
+  useEffect(() => {
+    const h = (e: any) => setInfoActive(!!e?.detail?.open);
+    window.addEventListener('pm:info-state', h as EventListener);
+    return () => window.removeEventListener('pm:info-state', h as EventListener);
   }, []);
 
   /* helpers */
@@ -244,6 +253,13 @@ export default function Dashboard() {
             title={mapActive ? 'Hide Map' : 'Show Map'}
             active={mapActive}
             onClick={() => window.dispatchEvent(new CustomEvent('pm:map-toggle'))}
+          />
+          {/* NEW: INFO ICON */}
+          <CleanIconButton
+            name="info"
+            title={infoActive ? 'Hide Info' : 'Show Info'}
+            active={infoActive}
+            onClick={() => window.dispatchEvent(new CustomEvent('pm:info-toggle'))}
           />
         </div>
 
@@ -386,6 +402,9 @@ export default function Dashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* INFO OVERLAY (globally controlled) */}
+      <Info />
     </Box>
   );
 }

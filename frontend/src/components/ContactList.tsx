@@ -5,6 +5,8 @@ import { Box, Table, Center, Loader } from '@mantine/core';
 import { Icon, IconButton } from './ui/Icons';
 import UniversalDropdown from './UniversalDropdown';
 import BannerMessage from './ui/BannerMessage';
+import { NoContacts } from './Animations';
+
 
 /* ========= Types ========= */
 type Contact = {
@@ -368,10 +370,11 @@ export default function ContactList() {
     if (token) {
       list = list.filter((r) => {
         const phoneStr = fmtUSPhoneDisplay(r.phone).toLowerCase();
-        const combined = `${r.name} ${r.email ?? ''} ${r.contact_type ?? ''} ${phoneStr} ${(r.notes ?? '').toLowerCase()}`;
+        const combined = `${r.name ?? ''} ${r.email ?? ''} ${r.contact_type ?? ''} ${phoneStr} ${r.notes ?? ''}`.toLowerCase();
         return combined.includes(token);
       });
     }
+
     const val = (obj: Contact, key: SortKey) =>
       key === 'phone' ? toDigits(obj.phone) : String((obj as any)[key] ?? '').toLowerCase();
     const dir = sortDir === 'asc' ? 1 : -1;
@@ -379,8 +382,7 @@ export default function ContactList() {
   }, [rows, query, sortKey, sortDir]);
 
   const TABLE_W = useMemo(() => COLS.reduce((s, c) => s + c.width, 0), []);
-
-  /* Header cell with PropertyList hover style */
+const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* Header cell with PropertyList hover style */
   const header = (c: { key: SortKey; title: string; width: number }) => {
     const active = c.key === sortKey;
     const onClick = () => {
@@ -591,11 +593,33 @@ export default function ContactList() {
                 </tr>
               ) : filteredSorted.length === 0 ? (
                 <tr>
-                  <td colSpan={COLS.length} style={{ textAlign: 'center', padding: 40, color: '#666', fontSize: 22, background: '#fff' }}>
-                    No contacts found.
+                  <td
+                    colSpan={COLS.length}
+                    style={{
+                      textAlign: 'center',
+                      padding: 32,
+                      background: 'transparent',
+                      verticalAlign: 'middle',
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      {noContactsAnimation}
+                      <div
+                        style={{
+                          marginTop: 8,
+                          color: '#444',
+                          fontSize: 28,
+                          fontWeight: 800,
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        No contacts found.
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (
+
                 filteredSorted.flatMap((row) => {
                   const isEditing = editingId === row.contact_id;
                   const isConfirming = confirmId === row.contact_id;

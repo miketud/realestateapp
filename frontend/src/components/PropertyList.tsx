@@ -7,6 +7,8 @@ import PropertyView from './PropertyView';
 import { Icon, IconButton } from './ui/Icons';
 import UniversalDropdown from './UniversalDropdown';
 import BannerMessage from './ui/BannerMessage';
+import { NoProperties } from './Animations';
+
 
 type PropertyInput = { property_name: string; address: string; owner: string; type: string; status: string; };
 type Property = PropertyInput & { property_id: number };
@@ -144,6 +146,9 @@ export default function PropertyList({ onOpenProperty }: Props) {
   }, [successMsg]);
 
   const TABLE_W = useMemo(() => COLS.reduce((s, c) => s + c.width, 0), []);
+  // Memoized NoProperties animation — only changes when data or search query change
+const noPropertiesAnimation = useMemo(() => <NoProperties />, [rows, query]);
+
   const effectiveName = (r: PropertyRow) => (r.property_name || '').toUpperCase();
   const readyToAdd = ['property_name', 'address'].every((k) => String((newRow as any)[k]).trim().length > 0);
 
@@ -424,13 +429,21 @@ export default function PropertyList({ onOpenProperty }: Props) {
                     </Center>
                   </td>
                 </tr>
-              ) : queryRows.length === 0 ? (
-                <tr>
-                  <td colSpan={COLS.length} style={{ textAlign: 'center', padding: 40, color: '#666', fontSize: 220, background: 'transparent' }}>
-                    No properties found.
-                  </td>
-                </tr>
-              ) : (
+) : queryRows.length === 0 ? (
+  <tr>
+    <td
+      colSpan={COLS.length}
+      style={{ textAlign: 'center', padding: 0, background: 'transparent' }}
+    >
+      {noPropertiesAnimation}
+      <div
+        style={{ marginTop: 0, color: '#555', fontSize: 40, fontWeight: 700 }}
+      >
+        No properties found.
+      </div>
+    </td>
+  </tr>
+) : (
                 queryRows.map((row) => {
                   const isEditing = editingId === row.property_id;
                   const isConfirming = confirmId === row.property_id;
