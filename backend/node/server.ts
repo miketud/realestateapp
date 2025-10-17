@@ -561,9 +561,9 @@ start().catch((err) => {
   process.exit(1);
 });
 
-// =====================================================
+// ========================================================
 // PAYMENT LOG (mirrors RentLog) — Prisma model PaymentLog
-// =====================================================
+// ========================================================
 app.get('/api/paymentlog', async (req, reply) => {
   const { property_id, year } = req.query as { property_id?: string; year?: string };
   if (!property_id || !year) {
