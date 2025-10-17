@@ -21,6 +21,13 @@ export type Property = PropertyInput & {
   year?: number;
 };
 
+/**
+ * Keep one consistent base. This matches your working routes:
+ *   GET/POST   http://localhost:3000/api/properties
+ *   GET/PUT    http://localhost:3000/api/properties/:id
+ *   PATCH(one) http://localhost:3000/api/properties/:id
+ *   DELETE     http://localhost:3000/api/properties/:id
+ */
 const API_URL = 'http://localhost:3000/api/properties';
 
 export const getProperties = async (): Promise<Property[]> => {
@@ -46,8 +53,8 @@ export const updateProperty = async (
   return res.data;
 };
 
-export const deleteProperty = async (property_id: number): Promise<void> => {
-  await axios.delete(`${API_URL}/${property_id}`);
+export const deleteProperty = async (id: number): Promise<void> => {
+  await axios.delete(`${API_URL}/${id}`); // ← unified with the rest
 };
 
 // PATCH one field (inline-edit support)

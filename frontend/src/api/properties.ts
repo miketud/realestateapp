@@ -22,13 +22,19 @@ export type Property = PropertyInput & {
 };
 
 /**
- * Keep one consistent base. This matches your working routes:
- *   GET/POST   http://localhost:3000/api/properties
- *   GET/PUT    http://localhost:3000/api/properties/:id
- *   PATCH(one) http://localhost:3000/api/properties/:id
- *   DELETE     http://localhost:3000/api/properties/:id
+ * Base URL automatically switches between local dev and Docker runtime.
+ *
+ * - In local Vite dev: VITE_API_BASE comes from `.env` (defaults to localhost).
+ * - In Docker: it’s passed via Dockerfile/Compose as `http://realestateapp-backend:3000`.
  */
-const API_URL = 'http://localhost:3000/api/properties';
+const API_BASE =
+  (import.meta.env.VITE_API_BASE || 'http://localhost:3000').replace(/\/$/, '');
+
+const API_URL = `${API_BASE}/api/properties`;
+
+// --------------------------------------------
+// CRUD Operations
+// --------------------------------------------
 
 export const getProperties = async (): Promise<Property[]> => {
   const res = await axios.get(API_URL);
@@ -54,7 +60,7 @@ export const updateProperty = async (
 };
 
 export const deleteProperty = async (id: number): Promise<void> => {
-  await axios.delete(`${API_URL}/${id}`); // ← unified with the rest
+  await axios.delete(`${API_URL}/${id}`);
 };
 
 // PATCH one field (inline-edit support)

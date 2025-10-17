@@ -1,35 +1,52 @@
-# ---- Stage 1: Build the backend ----
-FROM node:20-alpine AS builder
+# ===========================================
+# Stage 1 — Builder
+# ===========================================
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Copy only dependency files first (better build cache)
+# Install OpenSSL (required by Prisma)
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files first for layer caching
 COPY package*.json ./
 
-RUN npm install
+# Install dependencies (cleanly and reproducibly)
+RUN npm ci
 
-# Copy all source code (including Prisma schema and migrations)
+# Copy the full source (including Prisma schema, migrations, etc.)
 COPY . .
 
-# Generate Prisma client for the container OS
+# Generate Prisma client
 RUN npx prisma generate
 
-# Compile TypeScript to JavaScript
+# Build TypeScript -> JavaScript
 RUN npm run build
 
-# ---- Stage 2: Run the backend ----
-FROM node:20-alpine
+
+# ===========================================
+# Stage 2 — Production Runtime
+# ===========================================
+FROM node:20-slim AS runtime
 
 WORKDIR /app
 
-# Copy built app and node_modules from builder stage
-COPY --from=builder /app /app
+# Install OpenSSL (for Prisma) and curl (for Docker healthcheck)
+RUN apt-get update -y \
+  && apt-get install -y openssl curl \
+  && rm -rf /var/lib/apt/lists/*
 
-# Expose Fastify port
+# Copy only necessary files from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/prisma ./prisma
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Expose backend port
 EXPOSE 3000
 
-# Set environment
-ENV NODE_ENV=production
-
-# Automatically apply Prisma migrations before server starts
+# Run database migrations, then start Fastify
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
