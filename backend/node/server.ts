@@ -323,46 +323,95 @@ app.get('/health', async (_req, reply) => {
     }
   });
 
-  // ------------------------------
-  // CONTACTS
-  // ------------------------------
-  app.get('/api/contacts', async (req, reply) => {
-    const { q } = (req.query as { q?: string }) || {};
-    const search = (q ?? '').trim();
-    const searchDigits = (q ?? '').replace(/\D/g, '');
+// ------------------------------
+// CONTACTS
+// ------------------------------
 
-    let where: Prisma.ContactWhereInput | undefined;
-    if (search || searchDigits) {
-      where = {
-        OR: [
-          { contact_name: { contains: search, mode: 'insensitive' } },
-          { contact_email: { contains: search, mode: 'insensitive' } },
-          { contact_type: { contains: search, mode: 'insensitive' } },
-          { contact_notes: { contains: search, mode: 'insensitive' } },
-          ...(searchDigits ? [{ contact_phone: { contains: searchDigits } }] : []),
-        ],
-      };
+// GET /api/contacts?q=...
+app.get('/api/contacts', async (req, reply) => {
+  const { q } = (req.query as { q?: string }) || {};
+  const search = (q ?? '').trim();
+  const searchDigits = (q ?? '').replace(/\D/g, '');
+
+  let where: Prisma.ContactWhereInput | undefined;
+  if (search || searchDigits) {
+    where = {
+      OR: [
+        { contact_name: { contains: search, mode: 'insensitive' } },
+        { contact_email: { contains: search, mode: 'insensitive' } },
+        { contact_type: { contains: search, mode: 'insensitive' } },
+        { contact_notes: { contains: search, mode: 'insensitive' } },
+        ...(searchDigits ? [{ contact_phone: { contains: searchDigits } }] : []),
+      ],
+    };
+  }
+
+  const rows = await prisma.contact.findMany({
+    where,
+    orderBy: [{ updated_at: 'desc' }, { contact_id: 'desc' }],
+  });
+
+  reply.send(rows.map(dbToUiContact));
+});
+
+// POST /api/contacts
+app.post('/api/contacts', async (req, reply) => {
+  try {
+    const data = uiToDbContact(req.body);
+    const created = await prisma.contact.create({ data });
+    reply.status(201).send(dbToUiContact(created));
+  } catch (e: any) {
+    if (String(e.message).startsWith('VALIDATION:')) {
+      return reply.status(400).send({ error: e.message.replace('VALIDATION:', '') });
     }
+    reply.status(500).send({ error: 'Failed to create contact' });
+  }
+});
 
-    const rows = await prisma.contact.findMany({
-      where,
-      orderBy: [{ updated_at: 'desc' }, { contact_id: 'desc' }],
+// PATCH /api/contacts/:id
+app.patch('/api/contacts/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const body = req.body as any;
+
+  // Build a safe partial patch
+  const patch: Prisma.ContactUpdateInput = {};
+  if (body.name !== undefined) {
+    const name = String(body.name).trim();
+    if (!name) return reply.status(400).send({ error: 'name is required' });
+    patch.contact_name = name;
+  }
+  if (body.phone !== undefined) {
+    const digits = clamp10(toDigits(String(body.phone)));
+    if (digits.length !== 10) return reply.status(400).send({ error: 'phone must have 10 digits' });
+    patch.contact_phone = digits;
+  }
+  if (body.email !== undefined) patch.contact_email = body.email ? String(body.email) : null;
+  if (body.contact_type !== undefined) patch.contact_type = body.contact_type ? String(body.contact_type) : null;
+  if (body.notes !== undefined) patch.contact_notes = body.notes ? String(body.notes) : null;
+
+  try {
+    const updated = await prisma.contact.update({
+      where: { contact_id: Number(id) },
+      data: patch,
     });
+    reply.send(dbToUiContact(updated));
+  } catch (e: any) {
+    if (e?.code === 'P2025') return reply.status(404).send({ error: 'Contact not found' });
+    reply.status(400).send({ error: 'Update failed' });
+  }
+});
 
-    reply.send(rows.map(dbToUiContact));
-  });
-
-  app.post('/api/contacts', async (req, reply) => {
-    try {
-      const data = uiToDbContact(req.body);
-      const created = await prisma.contact.create({ data });
-      reply.status(201).send(dbToUiContact(created));
-    } catch (e: any) {
-      if (String(e.message).startsWith('VALIDATION:'))
-        return reply.status(400).send({ error: e.message.replace('VALIDATION:', '') });
-      reply.status(500).send({ error: 'Failed to create contact' });
-    }
-  });
+// DELETE /api/contacts/:id
+app.delete('/api/contacts/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  try {
+    await prisma.contact.delete({ where: { contact_id: Number(id) } });
+    reply.status(204).send();
+  } catch (e: any) {
+    if (e?.code === 'P2025') return reply.status(404).send({ error: 'Contact not found' });
+    reply.status(400).send({ error: 'Delete failed' });
+  }
+});
 
   // ------------------------------
   // PAYMENT LOG

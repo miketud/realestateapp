@@ -44,7 +44,14 @@ const CONTACT_TYPE_OPTIONS = [
 ] as const;
 
 const NOTES_BG = '#bec8dfff';
-const API = '/api/contacts';
+// Docker-safe + Vite-safe API base
+const isProd = import.meta.env.MODE === 'production';
+const API_BASE = (
+  import.meta.env.VITE_API_BASE ||            // e.g. http://realestateapp-backend:3000 (Compose)
+  (isProd ? '' : 'http://localhost:3000')     // same-origin in prod (behind nginx), localhost in dev
+).replace(/\/$/, '');
+
+const API = `${API_BASE}/api/contacts`;
 const U = (s?: string) => (s ? s.toUpperCase() : '');
 const EMPTY = '—';
 function PlaceholderOrValue({ value }: { value?: any }) {
@@ -608,8 +615,8 @@ const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* He
                         style={{
                           marginTop: 8,
                           color: '#444',
-                          fontSize: 28,
-                          fontWeight: 800,
+                          fontSize: 40,
+                          fontWeight: 700,
                           letterSpacing: 0.5,
                         }}
                       >

@@ -36,6 +36,14 @@ const ROW_H = 56;
 const DIVIDER = '1px solid rgba(0,0,0,0.18)';
 const HEADER_RULE = '2px solid rgba(0,0,0,0.25)';
 
+// --- Docker/Vite-safe API base ---
+const isProd = import.meta.env.MODE === 'production';
+const API_BASE = (
+  import.meta.env.VITE_API_BASE ||            // e.g. http://realestateapp-backend:3000 in Compose
+  (isProd ? '' : 'http://localhost:3000')     // same-origin in prod (via nginx), localhost in dev
+).replace(/\/$/, '');
+
+const CONTACTS_API = `${API_BASE}/api/contacts`;
 
 
 /* header: no bg, dark gray, centered, ALL CAPS, no vertical borders, bottom rule */
@@ -117,17 +125,17 @@ export default function PropertyList({ onOpenProperty }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const [contactNames, setContactNames] = useState<string[]>([]);
-  useEffect(() => {
-    fetch('/api/contacts')
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.text())))
-      .then((data: any[]) => {
-        const names = Array.isArray(data) ? data.map((c) => String(c?.name ?? '')).filter(Boolean) : [];
-        const uniq: string[] = [];
-        for (const n of names) if (!uniq.includes(n)) uniq.push(n);
-        setContactNames(uniq);
-      })
-      .catch(() => void 0);
-  }, []);
+useEffect(() => {
+  fetch(CONTACTS_API)
+    .then(async (r) => (r.ok ? r.json() : Promise.reject(await r.text())))
+    .then((data: any[]) => {
+      const names = Array.isArray(data) ? data.map((c) => String(c?.name ?? '')).filter(Boolean) : [];
+      const uniq: string[] = [];
+      for (const n of names) if (!uniq.includes(n)) uniq.push(n);
+      setContactNames(uniq);
+    })
+    .catch(() => void 0);
+}, []);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);

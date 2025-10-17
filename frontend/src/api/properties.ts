@@ -1,5 +1,9 @@
+// src/api/properties.ts
 import axios from 'axios';
 
+/**
+ * Property data types
+ */
 export type PropertyInput = {
   property_name: string;
   address: string;
@@ -22,53 +26,52 @@ export type Property = PropertyInput & {
 };
 
 /**
- * Base URL automatically switches between local dev and Docker runtime.
+ * Base URL configuration
  *
- * - In local Vite dev: VITE_API_BASE comes from `.env` (defaults to localhost).
- * - In Docker: it’s passed via Dockerfile/Compose as `http://realestateapp-backend:3000`.
+ * - Local dev: defaults to http://localhost:3000 unless overridden in `.env`.
+ * - Docker/production: set VITE_API_BASE to e.g. http://realestateapp-backend:3000
+ *
+ * `.replace(/\/$/, '')` ensures no trailing slash.
  */
-const API_BASE =
-  (import.meta.env.VITE_API_BASE || 'http://localhost:3000').replace(/\/$/, '');
-
+const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:3000').replace(/\/$/, '');
 const API_URL = `${API_BASE}/api/properties`;
 
-// --------------------------------------------
-// CRUD Operations
-// --------------------------------------------
-
-export const getProperties = async (): Promise<Property[]> => {
+/**
+ * --------------------------------------------
+ * CRUD Operations
+ * --------------------------------------------
+ */
+export async function getProperties(): Promise<Property[]> {
   const res = await axios.get(API_URL);
   return res.data;
-};
+}
 
-export const createProperty = async (property: PropertyInput): Promise<Property> => {
+export async function createProperty(property: PropertyInput): Promise<Property> {
   const res = await axios.post(API_URL, property);
   return res.data;
-};
+}
 
-export const getProperty = async (id: number): Promise<Property> => {
+export async function getProperty(id: number): Promise<Property> {
   const res = await axios.get(`${API_URL}/${id}`);
   return res.data;
-};
+}
 
-export const updateProperty = async (
-  property_id: number,
-  property: PropertyInput
-): Promise<Property> => {
-  const res = await axios.put(`${API_URL}/${property_id}`, property);
+/** Use PATCH to match backend route (/api/properties/:id via PATCH) */
+export async function updateProperty(property_id: number, property: PropertyInput): Promise<Property> {
+  const res = await axios.patch(`${API_URL}/${property_id}`, property);
   return res.data;
-};
+}
 
-export const deleteProperty = async (id: number): Promise<void> => {
+export async function deleteProperty(id: number): Promise<void> {
   await axios.delete(`${API_URL}/${id}`);
-};
+}
 
-// PATCH one field (inline-edit support)
-export const updatePropertyField = async (
+/** Partial update for inline editing */
+export async function updatePropertyField(
   property_id: number,
   field: string,
   value: any
-): Promise<Property> => {
+): Promise<Property> {
   const res = await axios.patch(`${API_URL}/${property_id}`, { [field]: value });
   return res.data;
-};
+}

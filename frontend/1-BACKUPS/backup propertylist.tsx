@@ -7,17 +7,12 @@ import PropertyView from './PropertyView';
 import { Icon, IconButton } from './ui/Icons';
 import UniversalDropdown from './UniversalDropdown';
 import BannerMessage from './ui/BannerMessage';
+import { NoProperties } from './Animations';
 
-type PropertyInput = {
-  property_name: string;
-  address: string;
-  owner: string;
-  type: string;
-  status: string;
-};
+
+type PropertyInput = { property_name: string; address: string; owner: string; type: string; status: string; };
 type Property = PropertyInput & { property_id: number };
 type PropertyRow = Property;
-
 type Props = { onOpenProperty?: (id: number) => void };
 
 const COLS: Array<{ key: keyof PropertyInput; title: string; width: number }> = [
@@ -30,38 +25,51 @@ const COLS: Array<{ key: keyof PropertyInput; title: string; width: number }> = 
 
 const STATUS_OPTIONS = ['Vacant', 'Pending', 'Leased', 'Subleased', 'Financed'] as const;
 const TYPE_OPTIONS = ['Commercial', 'Residential', 'Land'] as const;
+const HEADER_FONT_SIZE = 16;
+const HEADER_LINE_HEIGHT = '18px';
+const HEADER_MIN_H = 52;
 
 const FONT_SIZE = 20;
 const PLACEHOLDER = '#9aa1a8';
-const NAME_BG = '#f3f3f3';
 const ROW_H = 56;
 
+const DIVIDER = '1px solid rgba(0,0,0,0.18)';
+const HEADER_RULE = '2px solid rgba(0,0,0,0.25)';
+
+
+
+/* header: no bg, dark gray, centered, ALL CAPS, no vertical borders, bottom rule */
 const headerTh: CSSProperties = {
-  border: '1px solid #111',
-  padding: '10px 12px',
-  background: '#111',
-  color: '#fff',
-  fontWeight: 700,
+  padding: 0,
+  background: 'transparent',
+  color: '#2b2b2b',
+  fontWeight: 800,
   letterSpacing: 0.3,
-  position: 'relative',
   textAlign: 'center',
-  lineHeight: 1,
-  height: ROW_H,
-};
-const cellBase: CSSProperties = {
-  border: '1px solid #222',
-  padding: '10px',
+  border: 'none',
+  userSelect: 'none',
   verticalAlign: 'middle',
-  background: '#fff',
+  height: 'auto',
+  minHeight: HEADER_MIN_H,
+};
+
+/* body cells: centered, subtle vertical dividers */
+const cellBase: CSSProperties = {
+  border: 'none',
+  borderRight: DIVIDER,
+  padding: '12px 10px',
+  verticalAlign: 'middle',
+  background: 'transparent',
   fontSize: FONT_SIZE,
   color: '#111',
   height: ROW_H,
   boxSizing: 'border-box',
-  textAlign: 'left',
+  textAlign: 'center',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
 };
+
 const inputBase: CSSProperties = {
   width: '100%',
   height: '100%',
@@ -72,13 +80,10 @@ const inputBase: CSSProperties = {
   color: 'inherit',
   padding: 0,
   margin: 0,
+  textAlign: 'center',
 };
 
-const sorters = {
-  asc: <Icon name="sortUp" />,
-  desc: <Icon name="sortDown" />,
-  none: <Icon name="sort" />,
-} as const;
+const sorters = { asc: <Icon name="sortUp" />, desc: <Icon name="sortDown" />, none: <Icon name="sort" /> } as const;
 
 function PlaceholderOrValue({ value }: { value?: any }) {
   const v = value == null || String(value).trim() === '' ? null : value;
@@ -88,13 +93,11 @@ function PlaceholderOrValue({ value }: { value?: any }) {
 export default function PropertyList({ onOpenProperty }: Props) {
   const [rows, setRows] = useState<PropertyRow[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [sortKey, setSortKey] = useState<keyof PropertyRow>('property_name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [hoverHdr, setHoverHdr] = useState<keyof PropertyInput | null>(null);
 
-  const [newRow, setNewRow] = useState<PropertyInput>({
-    property_name: '', address: '', owner: '', type: '', status: '',
-  });
+  const [newRow, setNewRow] = useState<PropertyInput>({ property_name: '', address: '', owner: '', type: '', status: '' });
   const [savingNew, setSavingNew] = useState(false);
 
   const [query, setQuery] = useState('');
@@ -143,7 +146,10 @@ export default function PropertyList({ onOpenProperty }: Props) {
   }, [successMsg]);
 
   const TABLE_W = useMemo(() => COLS.reduce((s, c) => s + c.width, 0), []);
-  const effectiveName = (r: PropertyRow) => r.property_name || '';
+  // Memoized NoProperties animation — only changes when data or search query change
+const noPropertiesAnimation = useMemo(() => <NoProperties />, [rows, query]);
+
+  const effectiveName = (r: PropertyRow) => (r.property_name || '').toUpperCase();
   const readyToAdd = ['property_name', 'address'].every((k) => String((newRow as any)[k]).trim().length > 0);
 
   async function load() {
@@ -199,36 +205,27 @@ export default function PropertyList({ onOpenProperty }: Props) {
     }
   }
 
-  function toggleEdit(row: PropertyRow) {
-    if (editingId === row.property_id) {
-      void saveEditRow(row.property_id);
-    } else {
-      setEditingId(row.property_id);
-      setEdit({
-        property_name: row.property_name,
-        address: row.address,
-        owner: row.owner,
-        type: row.type,
-        status: row.status,
-      });
-    }
-  }
-
-  const filteredSorted = useMemo(() => {
+  const [queryRows, setQueryRows] = useState<PropertyRow[]>([]);
+  useEffect(() => {
     const token = query.trim().toLowerCase();
     let list = rows;
     if (token) {
       list = list.filter((r) =>
-        (r.property_name + ' ' + r.address + ' ' + r.owner + ' ' + r.type + ' ' + r.status).toLowerCase().includes(token)
+        (r.property_name + ' ' + r.address + ' ' + r.owner + ' ' + r.type + ' ' + r.status)
+          .toLowerCase()
+          .includes(token)
       );
     }
     const aVal = (x: any) => String(x ?? '').toLowerCase();
-    return list.slice().sort((a: any, b: any) => {
-      const av = aVal(a[sortKey]);
-      const bv = aVal(b[sortKey]);
-      const cmp = av.localeCompare(bv);
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
+    list = list
+      .slice()
+      .sort((a: any, b: any) => {
+        const av = aVal(a[sortKey]);
+        const bv = aVal(b[sortKey]);
+        const cmp = av.localeCompare(bv);
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    setQueryRows(list);
   }, [rows, query, sortKey, sortDir]);
 
   const header = (c: { key: keyof PropertyInput; title: string; width: number }) => {
@@ -238,19 +235,44 @@ export default function PropertyList({ onOpenProperty }: Props) {
       else { setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }
     };
     const icon = !active ? sorters.none : sortDir === 'asc' ? sorters.asc : sorters.desc;
+    const hovered = hoverHdr === c.key;
 
     return (
-      <th key={c.key} style={{ ...headerTh, width: c.width }}>
-        <button
-          type="button"
-          onClick={onClick}
-          style={{ all: 'unset', cursor: 'pointer', display: 'inline-block', width: '100%', height: '100%', textAlign: 'left', paddingRight: 32 }}
-        >
-          {c.title}
-        </button>
-        <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', display: 'inline-flex' }}>
-          {icon}
-        </span>
+      <th key={c.key} style={{ ...headerTh, width: c.width, borderBottom: HEADER_RULE }}>
+<button
+  type="button"
+  onClick={onClick}
+  onMouseEnter={() => setHoverHdr(c.key)}
+  onMouseLeave={() => setHoverHdr(k => (k === c.key ? null : k))}
+  style={{
+    /* removed position:absolute/inset */
+    width: '100%',
+    minHeight: HEADER_MIN_H,
+    padding: '6px 12px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    boxShadow: hovered ? '0 6px 16px rgba(0,0,0,0.18)' : 'none',
+    transition: 'box-shadow 160ms ease',
+    fontWeight: 800,
+    color: '#2b2b2b',
+    textTransform: 'uppercase',
+    lineHeight: HEADER_LINE_HEIGHT,
+    fontSize: HEADER_FONT_SIZE,
+    textAlign: 'center',
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
+  }}
+>
+  <span style={{ pointerEvents: 'none', maxWidth: 'calc(100% - 28px)' }}>
+    {c.title.toUpperCase()}
+  </span>
+  <span style={{ pointerEvents: 'none', display: 'inline-flex' }}>{icon}</span>
+</button>
       </th>
     );
   };
@@ -259,20 +281,18 @@ export default function PropertyList({ onOpenProperty }: Props) {
 
   return (
     <Box style={{ position: 'relative', marginTop: 24 }}>
-      {/* Whole table open-down animation wrapper */}
       <div
         style={{
           width: '100%',
-          overflow: 'visible',                 // allow search to extend above
+          overflow: 'visible',
           transformOrigin: 'top center',
           transform: mounted ? 'scaleY(1)' : 'scaleY(0.96)',
           opacity: mounted ? 1 : 0,
           transition: 'transform 420ms ease, opacity 420ms ease',
         }}
       >
-        {/* Add top padding equal to search height so it sits “inside” the wrapper */}
         <div style={{ position: 'relative', width: TABLE_W, margin: '0 auto', paddingTop: ROW_H + 8 }}>
-          {/* Search anchored to table top-right */}
+          {/* Search */}
           <div style={{ position: 'absolute', right: 0, top: 0 }}>
             <input
               ref={searchRef}
@@ -284,14 +304,14 @@ export default function PropertyList({ onOpenProperty }: Props) {
           </div>
 
           <Table
-            highlightOnHover
+            highlightOnHover={false}
             style={{
               width: TABLE_W,
               fontSize: FONT_SIZE,
               borderCollapse: 'collapse',
-              border: '1px solid black',
-              boxShadow: '0 12px 28px rgba(0,0,0,0.16), inset 0 0 10px rgba(0,0,0,0.08)',
+              borderSpacing: 0,
               tableLayout: 'fixed',
+              background: 'transparent',
             }}
           >
             <colgroup>{COLS.map((c) => <col key={c.key} style={{ width: `${c.width}px` }} />)}</colgroup>
@@ -301,9 +321,10 @@ export default function PropertyList({ onOpenProperty }: Props) {
             </thead>
 
             <tbody>
-              {/* Entry row with inner shadow + 3px inner border */}
-              <tr style={{ height: ROW_H }}>
+              {/* ENTRY ROW: no borders, subtle mono highlight, actions outside at row level */}
+              <tr style={{ height: ROW_H, position: 'relative' }}>
                 {COLS.map((c, ci) => {
+                  const isFirst = ci === 0;
                   const isLast = ci === COLS.length - 1;
 
                   let content: React.ReactNode;
@@ -339,14 +360,12 @@ export default function PropertyList({ onOpenProperty }: Props) {
                       />
                     );
                   } else {
-                    // center typing for Property and Address
-                    const center = c.key === 'property_name' || c.key === 'address';
                     content = (
                       <input
                         value={(newRow as any)[c.key] ?? ''}
                         onChange={(e) => setNewRow((p) => ({ ...p, [c.key]: e.target.value }))}
-                        placeholder={c.title}
-                        style={{ ...inputBase, textAlign: center ? 'center' : 'left' }}
+                        placeholder={isFirst ? 'ADD PROPERTY' : c.title}
+                        style={inputBase}
                       />
                     );
                   }
@@ -355,22 +374,29 @@ export default function PropertyList({ onOpenProperty }: Props) {
                     <td
                       key={c.key}
                       style={{
-                        ...cellBase,
-                        position: 'relative',
-                        overflow: 'visible',
-                        boxShadow: 'inset 0 0 14px rgba(0,0,0,0.10), inset 0 0 0 3px #111',
+                        border: 'none',                 // remove borders in entry row
+                        padding: cellBase.padding,
+                        textAlign: 'center',
+                        background: 'rgba(0,0,0,0.06)', // subtle highlight
+                        color: '#111',
+                        height: ROW_H,
+                        boxSizing: 'border-box',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                       }}
                     >
                       {content}
 
+                      {/* entry-row actions outside the table */}
                       {isLast && (
                         <div
                           style={{
                             position: 'absolute',
-                            left: 'calc(100% + 8px)',
+                            left: `calc(${TABLE_W}px + 8px)`,
                             top: '50%',
                             transform: 'translateY(-50%)',
-                            display: 'flex',
+                            display: 'inline-flex',
                             gap: 8,
                             alignItems: 'center',
                             zIndex: 1500,
@@ -394,166 +420,137 @@ export default function PropertyList({ onOpenProperty }: Props) {
                 })}
               </tr>
 
-              {/* Data rows */}
+              {/* DATA ROWS: hover blue, centered, dividers; actions outside per row */}
               {loading ? (
                 <tr>
-                  <td colSpan={COLS.length} style={{ background: '#fff' }}>
+                  <td colSpan={COLS.length} style={{ background: 'transparent' }}>
                     <Center style={{ minHeight: 96 }}>
                       <Loader size="lg" />
                     </Center>
                   </td>
                 </tr>
-              ) : filteredSorted.length === 0 ? (
-                <tr>
-                  <td colSpan={COLS.length} style={{ textAlign: 'center', padding: 40, color: '#666', fontSize: 22, background: '#fff' }}>
-                    No properties found.
-                  </td>
-                </tr>
-              ) : (
-                filteredSorted.map((row, idx) => {
+) : queryRows.length === 0 ? (
+  <tr>
+    <td
+      colSpan={COLS.length}
+      style={{ textAlign: 'center', padding: 0, background: 'transparent' }}
+    >
+      {noPropertiesAnimation}
+      <div
+        style={{ marginTop: 0, color: '#555', fontSize: 40, fontWeight: 700 }}
+      >
+        No properties found.
+      </div>
+    </td>
+  </tr>
+) : (
+                queryRows.map((row) => {
                   const isEditing = editingId === row.property_id;
                   const isConfirming = confirmId === row.property_id;
                   const rowHovered = hoverId === row.property_id;
                   const dimOthers = (editingId ?? confirmId ?? null) !== null && !(isEditing || isConfirming);
-
-                  const transformValue = rowHovered && !dimOthers && !(isEditing || isConfirming) ? 'translateY(-2px)' : 'none';
-                  const opacityValue = dimOthers ? 0.5 : 1;
 
                   return (
                     <tr
                       key={row.property_id}
                       onMouseEnter={() => setHoverId(row.property_id)}
                       onMouseLeave={() => setHoverId((p) => (p === row.property_id ? null : p))}
-                      style={{
-                        height: ROW_H,
-                        transform: transformValue,
-                        opacity: opacityValue,
-                        transition: 'transform 120ms ease, filter 120ms ease, opacity 120ms ease',
-                        filter: rowHovered && !dimOthers && !isEditing && !isConfirming ? 'drop-shadow(0 8px 14px rgba(0,0,0,0.18))' : 'none',
-                        position: 'relative',
-                      }}
+                      style={{ height: ROW_H, opacity: dimOthers ? 0.5 : 1, transition: 'opacity 120ms ease', position: 'relative' }}
                     >
                       {COLS.map((c, ci) => {
-                        const first = ci === 0;
                         const last = ci === COLS.length - 1;
-
+                        const isHighlighted = rowHovered && !dimOthers && !isEditing && !isConfirming;
                         const styleCell: CSSProperties = {
                           ...cellBase,
-                          borderTop: idx === 0 ? '1px solid #222' : '2px solid #222',
-                          ...(first
-                            ? { background: NAME_BG, fontWeight: 700, userSelect: 'none', cursor: !isEditing && !isConfirming ? 'pointer' : 'default' }
-                            : {}),
-                          position: 'relative',
-                          overflow: 'visible',
-                          paddingRight: last ? 0 : 10,
-                          ...(dimOthers ? { background: '#2b2b2b', color: '#cfd6dd', borderColor: '#333' } : {}),
+                          background: isHighlighted ? '#d6e7ffff' : 'transparent',
+                          ...(last ? { borderRight: 'none' } : {}),
+                          ...(dimOthers ? { background: '#2b2b2b', color: '#cfd6dd' } : {}),
+                          cursor: c.key === 'property_name' && !isEditing && !isConfirming ? 'pointer' : 'default',
                         };
 
-                        const open = () => {
-                          if (onOpenProperty) onOpenProperty(row.property_id);
-                          else setSelectedId(row.property_id);
-                        };
+                        const open = () => { if (onOpenProperty) onOpenProperty(row.property_id); else setSelectedId(row.property_id); };
 
                         return (
                           <td
                             key={c.key}
                             style={styleCell}
-                            {...(first && !isEditing && !isConfirming
-                              ? {
-                                  onClick: open,
-                                  role: 'button',
-                                  tabIndex: 0,
-                                  onKeyDown: (e: React.KeyboardEvent) => {
-                                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
-                                    if (e.key === 'Escape') (e.currentTarget as HTMLElement).blur();
-                                  },
-                                  title: 'View property',
-                                }
+                            {...(c.key === 'property_name' && !isEditing && !isConfirming
+                              ? { onClick: open, role: 'button', tabIndex: 0,
+                                  onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } },
+                                  title: 'View property' }
                               : {})}
                           >
                             {isEditing ? (
                               c.key === 'type' ? (
-                                <UniversalDropdown
-                                  value={edit.type || null}
-                                  placeholder="Type"
+                                <UniversalDropdown value={edit.type || null} placeholder="Type"
                                   options={TYPE_OPTIONS.map((v) => ({ value: v, label: v }))}
-                                  onChange={(v) => setEdit((p) => ({ ...p, type: v }))}
-                                  ariaLabel="Type"
-                                />
+                                  onChange={(v) => setEdit((p) => ({ ...p, type: v }))} ariaLabel="Type" />
                               ) : c.key === 'status' ? (
-                                <UniversalDropdown
-                                  value={edit.status || null}
-                                  placeholder="Status"
+                                <UniversalDropdown value={edit.status || null} placeholder="Status"
                                   options={STATUS_OPTIONS.map((v) => ({ value: v, label: v }))}
-                                  onChange={(v) => setEdit((p) => ({ ...p, status: v }))}
-                                  ariaLabel="Status"
-                                />
+                                  onChange={(v) => setEdit((p) => ({ ...p, status: v }))} ariaLabel="Status" />
                               ) : c.key === 'owner' ? (
-                                <UniversalDropdown
-                                  value={edit.owner || null}
-                                  placeholder="Owner"
+                                <UniversalDropdown value={edit.owner || null} placeholder="Owner"
                                   options={contactNames.map((n) => ({ value: n, label: n }))}
-                                  onChange={(v) => setEdit((p) => ({ ...p, owner: v }))}
-                                  ariaLabel="Owner"
-                                  searchable
-                                />
+                                  onChange={(v) => setEdit((p) => ({ ...p, owner: v }))} ariaLabel="Owner" searchable />
                               ) : (
-                                // center typing for Property and Address in edit mode too
                                 <input
                                   value={(edit as any)[c.key] ?? ''}
                                   onChange={(e) => setEdit((p) => ({ ...p, [c.key]: e.target.value }))}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && editingId != null) { e.preventDefault(); void saveEditRow(editingId); }
-                                    if (e.key === 'Escape') setEditingId(null);
-                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter' && editingId != null) { e.preventDefault(); void saveEditRow(editingId); } if (e.key === 'Escape') setEditingId(null); }}
                                   placeholder={c.title}
-                                  style={{ ...inputBase, textAlign: c.key === 'property_name' || c.key === 'address' ? 'center' : 'left' }}
+                                  style={inputBase}
                                 />
                               )
                             ) : c.key === 'property_name' ? (
-                              <span>{effectiveName(row)}</span>
+                              <span style={{ fontWeight: 700 }}>{effectiveName(row)}</span>
                             ) : (
                               <PlaceholderOrValue value={(row as any)[c.key]} />
                             )}
 
+                            {/* actions: visually outside the table */}
                             {last && (
                               <div
                                 style={{
                                   position: 'absolute',
-                                  left: 'calc(100% + 8px)',
+                                  left: `calc(${TABLE_W}px + 8px)`,
                                   top: '50%',
                                   transform: 'translateY(-50%)',
-                                  display: 'flex',
+                                  display: 'inline-flex',
                                   gap: 10,
                                   alignItems: 'center',
                                   opacity: hoverId === row.property_id || isEditing || isConfirming ? 1 : 0,
                                   transition: 'opacity 160ms ease-in-out',
-                                  zIndex: 1500,
+                                  pointerEvents: 'auto',
                                 }}
                               >
                                 {!isConfirming && (
                                   <>
                                     {isEditing ? (
                                       <>
-                                        <IconButton icon="addCircle" label="Save" onClick={() => void saveEditRow(row.property_id)} />
                                         <IconButton icon="cancel" label="Cancel" onClick={() => setEditingId(null)} />
-                                      </>
+                                        <IconButton icon="addCircle" label="Save" onClick={() => void saveEditRow(row.property_id)} />
+                                                                              </>
                                     ) : (
-                                      <IconButton icon="edit" label="Edit" onClick={() => toggleEdit(row)} />
+                                      <IconButton icon="edit" label="Edit" onClick={() => {
+                                        if (editingId === row.property_id) return;
+                                        setEditingId(row.property_id);
+                                        setEdit({ property_name: row.property_name, address: row.address, owner: row.owner, type: row.type, status: row.status });
+                                      }} />
                                     )}
                                     <IconButton icon="delete" label="Delete" onClick={() => setConfirmId((prev) => (prev === row.property_id ? null : row.property_id))} />
                                   </>
                                 )}
 
-                                <div style={{ position: 'relative', height: ROW_H, display: 'flex', alignItems: 'center' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', height: ROW_H }}>
                                   <div
                                     style={{
                                       width: confirmId === row.property_id ? 90 : 0,
                                       height: ROW_H,
                                       overflow: 'hidden',
                                       transition: 'width 180ms ease',
-                                      border: confirmId === row.property_id ? '2px solid #c33' : '2px solid transparent',
-                                      background: '#fff',
+                                      border: 'none',
+                                      background: 'transparent',
                                       display: 'flex',
                                       alignItems: 'center',
                                       boxSizing: 'border-box',
@@ -569,28 +566,15 @@ export default function PropertyList({ onOpenProperty }: Props) {
                                           if (e.key === 'Enter' && confirmText.trim().toUpperCase() === 'DELETE') void doDelete(row.property_id);
                                           if (e.key === 'Escape') setConfirmId(null);
                                         }}
-                                        style={{
-                                          width: '100%',
-                                          height: '100%',
-                                          border: 'none',
-                                          outline: 'none',
-                                          textAlign: 'center',
-                                          fontWeight: 900,
-                                          letterSpacing: 1,
-                                          textTransform: 'uppercase',
-                                          fontSize: 14,
-                                        }}
+                                        style={{ width: '100%', height: '100%', border: '2px solid #c33', outline: 'none', background: '#fff',
+                                          textAlign: 'center', fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', fontSize: 16 }}
                                       />
                                     )}
                                   </div>
                                 </div>
 
                                 {confirmId === row.property_id && (
-                                  <IconButton
-                                    icon="cancel"
-                                    label="Cancel"
-                                    onClick={() => { setConfirmId(null); setConfirmText(''); }}
-                                  />
+                                  <IconButton icon="cancel" label="Cancel" onClick={() => { setConfirmId(null); setConfirmText(''); }} />
                                 )}
                               </div>
                             )}
@@ -606,18 +590,8 @@ export default function PropertyList({ onOpenProperty }: Props) {
         </div>
       </div>
 
-{bannerError && (
-  <BannerMessage kind="error" message={bannerError} inline maxWidth={TABLE_W} />
-)}
-{successMsg && (
-  <BannerMessage
-    kind="success"
-    message={successMsg}
-    inline={false}
-    autoHideMs={2400}
-    onClose={() => setSuccessMsg(null)}
-  />
-)}
+      {bannerError && <BannerMessage kind="error" message={bannerError} inline maxWidth={TABLE_W} />}
+      {successMsg && <BannerMessage kind="success" message={successMsg} inline={false} autoHideMs={2400} onClose={() => setSuccessMsg(null)} />}
     </Box>
   );
 }

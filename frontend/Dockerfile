@@ -1,46 +1,21 @@
-# ==========================================
-# Stage 1 — Build the Vite frontend
-# ==========================================
+# ---------- Stage 1: Build ----------
 FROM node:20-bullseye AS builder
 WORKDIR /app
 
-# --------------------------------------------------
-# 1️⃣ Install dependencies efficiently
-# --------------------------------------------------
 COPY package*.json ./
-RUN npm cache clean --force \
-  && rm -rf node_modules package-lock.json \
-  && npm install --no-audit --no-fund \
-  && npm rebuild esbuild rollup --verbose
+RUN npm ci --no-audit --no-fund
 
-# --------------------------------------------------
-# 2️⃣ Copy project source and build
-# --------------------------------------------------
 COPY . .
+RUN npm run build
 
-# ✅ Use the same variable name your app expects
-ARG VITE_API_BASE=http://realestateapp-backend:3000
-ENV VITE_API_BASE=$VITE_API_BASE
-
-# Check esbuild binary and build Vite app
-RUN npx esbuild --version && npm run build
-
-
-# ==========================================
-# Stage 2 — Serve with Nginx
-# ==========================================
+# ---------- Stage 2: Nginx ----------
 FROM nginx:1.25-alpine
+RUN rm -f /etc/nginx/conf.d/default.conf
 
-# --------------------------------------------------
-# 3️⃣ Copy built static files
-# --------------------------------------------------
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# --------------------------------------------------
-# 4️⃣ Configure Nginx for SPA routing and backend proxy
-# --------------------------------------------------
-RUN <<'EOF'
-cat > /etc/nginx/conf.d/default.conf <<'CONF'
+# SPA + API proxy (LF-safe heredocs)
+RUN set -eux; cat >/etc/nginx/conf.d/default.conf <<'CONF'
 server {
     listen 80;
     server_name localhost;
@@ -48,19 +23,22 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # ✅ Serve static frontend & handle React Router / SPA routes
-    location / {
-        try_files $uri $uri/ /index.html;
+    # cache immutable assets
+    location ~* \.(?:js|mjs|css|woff2?|ttf|otf|eot|svg|png|jpg|jpeg|gif|webp)$ {
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
     }
 
-    # ✅ Prevent recursion on /index.html requests
-    location = /index.html {
-        add_header Cache-Control "no-store";
-    }
+    # SPA routing
+    location / { try_files $uri $uri/ /index.html; }
 
-    # ✅ Proxy API requests to Fastify backend (Docker internal name)
+    # don't cache the HTML shell
+    location = /index.html { add_header Cache-Control "no-store"; }
+
+    # API proxy (no trailing slash so /api/* is preserved)
     location /api/ {
-        proxy_pass http://realestateapp-backend:3000/;
+        proxy_pass http://realestateapp-backend:3000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -70,16 +48,17 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # ✅ Basic security headers
-    add_header X-Content-Type-Options "nosniff";
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
 }
 CONF
-EOF
 
-# --------------------------------------------------
-# 5️⃣ Expose and run Nginx
-# --------------------------------------------------
+RUN set -eux; cat >/etc/nginx/conf.d/gzip.conf <<'CONF'
+gzip on;
+gzip_types text/plain text/css application/javascript application/json application/xml image/svg+xml;
+gzip_min_length 1024;
+CONF
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
