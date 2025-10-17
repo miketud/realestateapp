@@ -1,32 +1,45 @@
-version: '3.9'
+version: "3.9"
 
 services:
-  backend:
-    build:
-      context: ./backend/node
-    env_file:
-      - ./backend/node/.env.docker
-    ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/mydb
-    depends_on:
-      - db
-    volumes:
-      - ./backend/node:/app
-      - /app/node_modules
-
   db:
     image: postgres:16
+    container_name: realestateapp-db
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mydb
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: realestate
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+
+  backend:
+    build:
+      context: ./backend/node
+    image: miketud/realestateapp-backend:latest
+    container_name: realestateapp-backend
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: "postgresql://postgres:password@db:5432/realestate"
+      NODE_ENV: "production"
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build:
+      context: ./frontend
+    image: miketud/realestateapp-frontend:latest
+    container_name: realestateapp-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"              # host 5173 → container 80 (Nginx)
+    environment:
+      VITE_API_URL: "http://localhost:3000"
 
 volumes:
   pgdata:
