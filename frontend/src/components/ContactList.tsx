@@ -7,7 +7,6 @@ import UniversalDropdown from './UniversalDropdown';
 import BannerMessage from './ui/BannerMessage';
 import { NoContacts } from './Animations';
 
-
 /* ========= Types ========= */
 type Contact = {
   contact_id: number;
@@ -58,7 +57,6 @@ function PlaceholderOrValue({ value }: { value?: any }) {
   const v = value == null || String(value).trim() === '' ? null : value;
   return v == null ? <span style={{ color: PLACEHOLDER }}>{EMPTY}</span> : <span>{String(v)}</span>;
 }
-
 
 const FONT_SIZE = 20;
 const PLACEHOLDER = '#9aa1a8';
@@ -189,9 +187,9 @@ export default function ContactList() {
 
   const [hoverHdr, setHoverHdr] = useState<SortKey | null>(null);
 
-  const [draft, setDraft] = useState<{ name: string; phone: string; email: string; contact_type: string; notes: string }>({
-    name: '', phone: '', email: '', contact_type: '', notes: '',
-  });
+  const [draft, setDraft] = useState<{ name: string; phone: string; email: string; contact_type: string; notes: string }>(
+    { name: '', phone: '', email: '', contact_type: '', notes: '' }
+  );
   const readyToAdd = Boolean(draft.name.trim() && clamp10(toDigits(draft.phone)).length === 10);
   const hasNewInput = Object.values(draft).some((v) => String(v ?? '').trim().length > 0);
   const [savingNew, setSavingNew] = useState(false);
@@ -207,9 +205,9 @@ export default function ContactList() {
   const [confirmText, setConfirmText] = useState('');
   const confirmInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [edit, setEdit] = useState<{ name: string; phone: string; email: string; contact_type: string; notes: string }>({
-    name: '', phone: '', email: '', contact_type: '', notes: '',
-  });
+  const [edit, setEdit] = useState<{ name: string; phone: string; email: string; contact_type: string; notes: string }>(
+    { name: '', phone: '', email: '', contact_type: '', notes: '' }
+  );
   const [original, setOriginal] = useState<Contact | null>(null);
 
   const [bannerError, setBannerError] = useState<string | null>(null);
@@ -247,15 +245,15 @@ export default function ContactList() {
       const now = Date.now();
       const arr: Contact[] = Array.isArray(data)
         ? data.map((c: any) => ({
-          contact_id: Number(c.contact_id ?? now),
-          name: String(c.name ?? ''),
-          phone: clamp10(toDigits(String(c.phone ?? ''))),
-          email: String(c.email ?? ''),
-          contact_type: String(c.contact_type ?? ''),
-          notes: String(c.notes ?? ''),
-          created_at: Number(c.created_at ?? now),
-          updated_at: Number(c.updated_at ?? now),
-        }))
+            contact_id: Number(c.contact_id ?? now),
+            name: String(c.name ?? ''),
+            phone: clamp10(toDigits(String(c.phone ?? ''))),
+            email: String(c.email ?? ''),
+            contact_type: String(c.contact_type ?? ''),
+            notes: String(c.notes ?? ''),
+            created_at: Number(c.created_at ?? now),
+            updated_at: Number(c.updated_at ?? now),
+          }))
         : [];
       setRows(arr);
       setBannerError(null);
@@ -389,7 +387,9 @@ export default function ContactList() {
   }, [rows, query, sortKey, sortDir]);
 
   const TABLE_W = useMemo(() => COLS.reduce((s, c) => s + c.width, 0), []);
-  const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* Header cell with PropertyList hover style */
+  const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);
+
+  /* Header cell with PropertyList hover style */
   const header = (c: { key: SortKey; title: string; width: number }) => {
     const active = c.key === sortKey;
     const onClick = () => {
@@ -417,7 +417,7 @@ export default function ContactList() {
             background: 'transparent',
             border: 'none',
             cursor: 'pointer',
-            boxShadow: hovered ? '0 6px 16px rgba(0,0,0,0.18)' : 'none', // match PropertyList
+            boxShadow: hovered ? '0 6px 16px rgba(0,0,0,0.18)' : 'none',
             transition: 'box-shadow 160ms ease',
             fontWeight: 800,
             color: '#2b2b2b',
@@ -558,7 +558,6 @@ export default function ContactList() {
                           {readyToAdd && (
                             <IconButton icon="save" label={savingNew ? 'Saving…' : 'Save'} onClick={addContact} disabled={savingNew} />
                           )}
-
                         </div>
                       )}
                     </td>
@@ -592,6 +591,7 @@ export default function ContactList() {
                   </SmoothCollapse>
                 </td>
               </tr>
+
               {/* Data rows */}
               {loading ? (
                 <tr>
@@ -629,7 +629,6 @@ export default function ContactList() {
                   </td>
                 </tr>
               ) : (
-
                 filteredSorted.flatMap((row) => {
                   const isEditing = editingId === row.contact_id;
                   const isConfirming = confirmId === row.contact_id;
@@ -655,13 +654,13 @@ export default function ContactList() {
                           position: 'relative',
                           background: isHighlighted ? '#d6e7ffff' : (dimOthers ? '#2b2b2b' : 'transparent'),
                           color: dimOthers ? '#cfd6dd' : '#111',
-                          // keep the divider light and consistent
                           borderRight: last ? 'none' : DIVIDER,
-                          // REQUIRED so the action rail outside the cell remains clickable
                           ...(last ? { overflow: 'visible' } : {}),
                           ...(first ? { userSelect: 'none', cursor: 'pointer', fontWeight: 700 } : {}),
                         };
 
+                        // Only attach expand handlers when NOT editing/confirming.
+                        const attachRowToggleHandlers = first && !isEditing && !isConfirming;
 
                         const toggleIfName = () => {
                           if (!isEditing && !isConfirming) toggleExpanded(row.contact_id);
@@ -671,16 +670,20 @@ export default function ContactList() {
                           <td
                             key={c.key}
                             style={styleCell}
-                            {...(first
+                            {...(attachRowToggleHandlers
                               ? {
-                                onClick: toggleIfName,
-                                role: 'button',
-                                tabIndex: 0,
-                                onKeyDown: (e: React.KeyboardEvent) => {
-                                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleIfName(); }
-                                },
-                                title: isExpanded ? 'Hide notes' : 'Show notes',
-                              }
+                                  onClick: toggleIfName,
+                                  role: 'button' as const,
+                                  tabIndex: 0,
+                                  onKeyDown: (e: React.KeyboardEvent) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      // prevent default ONLY when we will toggle
+                                      e.preventDefault();
+                                      toggleIfName();
+                                    }
+                                  },
+                                  title: isExpanded ? 'Hide notes' : 'Show notes',
+                                }
                               : {})}
                           >
                             {isEditing ? (
@@ -710,6 +713,7 @@ export default function ContactList() {
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter' && editingId != null) { e.preventDefault(); void saveEditRow(editingId); }
                                     if (e.key === 'Escape') clearAndExitEdit();
+                                    // Space is NOT prevented here, so typing spaces works.
                                   }}
                                   placeholder="Name"
                                   style={{ ...inputBase, fontWeight: 700 }}
@@ -914,8 +918,25 @@ export default function ContactList() {
         </div>
       </div>
 
-      {bannerError && <BannerMessage kind="error" message={bannerError} inline maxWidth={TABLE_W} />}
-      {successMsg && <BannerMessage kind="success" message={successMsg} inline={false} autoHideMs={2400} onClose={() => setSuccessMsg(null)} />}
+      {/* Banners — unified styling and auto-hide */}
+      {bannerError && (
+        <BannerMessage
+          kind="error"
+          message={bannerError}
+          inline={false}
+          autoHideMs={5000}
+          onClose={() => setBannerError(null)}
+        />
+      )}
+      {successMsg && (
+        <BannerMessage
+          kind="success"
+          message={successMsg}
+          inline={false}
+          autoHideMs={2400}
+          onClose={() => setSuccessMsg(null)}
+        />
+      )}
     </Box>
   );
 }
