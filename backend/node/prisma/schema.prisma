@@ -28,10 +28,10 @@ model Property {
   status           String
   income_producing YesNo    @default(NO)
   created_at       DateTime @default(now())
-  
-  lat             Float?    @map("lat")
-  lng             Float?    @map("lng")
-  geocoded_at     DateTime?
+
+  lat         Float?    @map("lat")
+  lng         Float?    @map("lng")
+  geocoded_at DateTime?
 
   // Relations
   rentLogs        RentLog[]
@@ -39,12 +39,12 @@ model Property {
   purchaseDetails PurchaseDetails[]
   loanDetails     LoanDetails[]     @relation("PropertyLoans")
   paymentLogs     PaymentLog[]
+  tenants         Tenant[]
 
-  @@map("properties")
-  
+  @@unique([address, city, state, zipcode], map: "uniq_prop_address")
   @@index([city, state])
   @@index([lat, lng], map: "idx_property_lat_lng")
-  @@unique([address, city, state, zipcode], map: "uniq_prop_address")
+  @@map("properties")
 }
 
 model RentLog {
@@ -148,4 +148,24 @@ model Contact {
   contact_notes String?  @db.Text // Notes (nullable)
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
+}
+
+model Tenant {
+  tenant_id     Int       @id @default(autoincrement())
+  property_id   Int
+  tenant_name   String?   @db.VarChar(255)
+  tenant_status String?   @db.VarChar(50)
+  lease_start   DateTime?
+  lease_end     DateTime?
+  rent_amount   Float?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  property Property @relation(fields: [property_id], references: [property_id], onDelete: Cascade)
+
+  @@unique([property_id, tenant_name, lease_start], name: "unique_property_tenant_start")
+  @@index([property_id])
+  @@index([tenant_status])
+  @@index([lease_start, lease_end])
+  @@map("tenant")
 }

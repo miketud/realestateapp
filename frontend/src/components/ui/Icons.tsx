@@ -1,153 +1,184 @@
 // src/components/ui/Icons.tsx
-import { type CSSProperties } from 'react';
+import React from 'react';
 import {
-  MdTableView,
-  MdOutlineEdit,
-  MdOutlineDelete,
-  MdOutlineClear,
-  MdOutlineSearch,
-  MdOutlineArrowRight,
-  MdOutlineArrowDropDown,
-  MdOutlineDashboard,
-  MdAddCircleOutline,
-  MdViewList,
-  MdOutlineRemoveCircle,
-  MdContacts,
-  MdOutlineUploadFile,
-  MdInfoOutline,
-} from 'react-icons/md';
-import { FaSort, FaSortDown, FaSortUp, FaRegMap, FaUserMinus } from 'react-icons/fa';
-import { IoMdHome, IoMdAdd } from 'react-icons/io';
-import { AiOutlineExport } from 'react-icons/ai';
+  FaSearch,
+  FaSort,
+  FaSortUp,
+  FaSortDown,
+  FaMapMarkedAlt,
+  FaTable,
+  FaEdit,
+  FaTrash,
+  FaArrowRight,
+  FaArrowDown,
+  FaRegListAlt,
+  FaHome,
+  FaTimes,
+  FaPlus,
+  FaCheckCircle,
+  FaCalendarAlt,
+  FaExclamationTriangle,
+  FaSave,
+  FaUserPlus,
+  FaUserMinus,
+  FaUsers,
+  FaInfoCircle,
+} from 'react-icons/fa';
 
-/* Registry */
-const ICONS = {
-  tableView: MdTableView,
-  edit: MdOutlineEdit,
-  delete: MdOutlineDelete,
-  cancel: MdOutlineClear, // was "clear"
-  search: MdOutlineSearch,
-  arrowRight: MdOutlineArrowRight,
-  arrowDown: MdOutlineArrowDropDown,
-  dashboard: MdOutlineDashboard,
-  map: FaRegMap,
+import type { CSSProperties } from 'react';
+
+// Add these aliases back into IconName:
+export type IconName =
+  | 'search'
+  | 'sort'
+  | 'sortUp'
+  | 'sortDown'
+  | 'map'
+  | 'tableView'
+  | 'edit'
+  | 'delete'
+  | 'arrowRight'
+  | 'arrowDown'
+  | 'dashboard'
+  | 'home'
+  | 'cancel'
+  | 'add'
+  | 'addCircle'
+  | 'save'
+  | 'alert'
+  | 'calendar'
+  | 'info'
+  | 'userAdd'
+  | 'userRemove'
+  | 'contact'
+  | 'confirm';
+
+
+const ICONS: Record<IconName, React.ComponentType<{ size?: number }>> = {
+  search: FaSearch,
   sort: FaSort,
   sortUp: FaSortUp,
   sortDown: FaSortDown,
-  addCircle: MdAddCircleOutline,
-  home: IoMdHome,
-  add: IoMdAdd,
-  view: MdViewList,
-  remove: MdOutlineRemoveCircle,
-  contact: MdContacts,
-  upload: MdOutlineUploadFile,
-  remove_user: FaUserMinus,
-  export: AiOutlineExport,
-  info: MdInfoOutline,
-} as const;
+  map: FaMapMarkedAlt,
+  tableView: FaTable,
+  edit: FaEdit,
+  delete: FaTrash,
+  arrowRight: FaArrowRight,
+  arrowDown: FaArrowDown,
+  dashboard: FaRegListAlt,
+  home: FaHome,
+  cancel: FaTimes,
+  add: FaPlus, // 👈 alias for backwards compatibility
+  addCircle: FaPlus,
+  save: FaSave,
+  alert: FaExclamationTriangle,
+  calendar: FaCalendarAlt,
+  info: FaInfoCircle, // or pick another icon you like
+  userAdd: FaUserPlus,
+  userRemove: FaUserMinus,
+  contact: FaUsers,
+  confirm: FaCheckCircle,
+};
 
-export type IconName = keyof typeof ICONS;
-
-/* Primitive Icon */
-const ICON_PX = 22;
-
-export function Icon({
-  name,
-  size = ICON_PX,
-  title,
-  'aria-hidden': ariaHidden,
-  style,
-}: {
+export type IconProps = {
   name: IconName;
   size?: number;
   title?: string;
-  'aria-hidden'?: boolean;
+  color?: string;
+  hoverColor?: string;
   style?: CSSProperties;
-}) {
+  onClick?: () => void;
+  'aria-hidden'?: boolean;
+};
+
+export function Icon({
+  name,
+  size = 22,
+  title,
+  color = '#111',
+  hoverColor,
+  style,
+  onClick,
+  ...rest
+}: IconProps) {
   const Cmp = ICONS[name];
-  return <Cmp size={size} title={title} aria-hidden={ariaHidden} style={style} />;
+  const [hover, setHover] = React.useState(false);
+
+  return (
+    <span
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={onClick}
+      title={title}
+      style={{
+        cursor: onClick ? 'pointer' : 'default',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: hover && hoverColor ? hoverColor : color,
+        transition: 'color 0.15s ease',
+        ...style,
+      }}
+      {...rest}
+    >
+      <Cmp size={size} />
+    </span>
+  );
 }
 
-/* IconButton with per-icon colors */
-type IconButtonColors = { bg: string; border: string; color: string };
-
-const PER_ICON: Record<IconName, IconButtonColors> = {
-  // semantic
-  delete: { bg: '#dc2626', border: '#7f1d1d', color: '#fff' }, // red
-  cancel: { bg: '#f97316', border: '#7c2d12', color: '#fff' }, // orange
-  remove: { bg: '#2563eb', border: '#1e3a8a', color: '#fff' }, // blue
-  addCircle: { bg: '#30a800ff', border: '#111', color: '#ffffffff' },
-
-  
-  // neutral
-  edit: { bg: '#fff', border: '#111', color: '#111' },
-  search: { bg: '#fff', border: '#111', color: '#111' },
-  arrowRight: { bg: '#fff', border: '#111', color: '#111' },
-  arrowDown: { bg: '#fff', border: '#111', color: '#111' },
-  dashboard: { bg: '#fff', border: '#111', color: '#111' },
-  map: { bg: '#fff', border: '#111', color: '#111' },
-  sort: { bg: '#fff', border: '#111', color: '#111' },
-  sortUp: { bg: '#fff', border: '#111', color: '#111' },
-  sortDown: { bg: '#fff', border: '#111', color: '#111' },
-  home: { bg: '#fff', border: '#111', color: '#111' },
-  add: { bg: '#fff', border: '#111', color: '#111' },
-  view: { bg: '#fff', border: '#111', color: '#111' },
-  contact: { bg: '#fff', border: '#111', color: '#111' },
-  upload: { bg: '#fff', border: '#111', color: '#111' },
-  tableView: { bg: '#fff', border: '#111', color: '#111' },
-  remove_user: { bg: '#fff', border: '#111', color: '#111' },
-  export: { bg: '#fff', border: '#111', color: '#111' },
-  info: { bg: '#fff', border: '#111', color: '#111' },
+// ---------------------------------------------
+// ICON BUTTON
+// ---------------------------------------------
+type IconButtonProps = {
+  icon: IconName;
+  label?: string;
+  title?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  boxSize?: number;
+  iconSize?: number;
+  color?: string;
+  bg?: string;
+  hoverBg?: string;
 };
 
 export function IconButton({
   icon,
   label,
+  title,
   onClick,
   disabled,
-  boxSize = 44,
-  iconSize = ICON_PX,
-  style,
-  title,
-  colors,
-}: {
-  icon: IconName;
-  label: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  boxSize?: number;
-  iconSize?: number;
-  style?: CSSProperties;
-  title?: string;
-  colors?: Partial<IconButtonColors>;
-}) {
-  const tone = { ...PER_ICON[icon], ...(colors || {}) };
-
+  boxSize = 42,
+  iconSize = 22,
+  color = '#111',
+  bg = '#fff',
+  hoverBg = '#f1f1f1',
+}: IconButtonProps) {
   return (
     <button
-      type="button"
-      aria-label={label}
-      title={title ?? label}
       onClick={onClick}
+      title={title ?? label}
       disabled={disabled}
       style={{
         width: boxSize,
         height: boxSize,
-        display: 'inline-flex',
+        display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        lineHeight: 0,
-        verticalAlign: 'middle',
+        background: bg,
+        border: '1px solid #000',
+        borderRadius: 6,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        border: `2px solid ${tone.border}`,
-        background: tone.bg,
-        color: tone.color,
-        boxSizing: 'border-box',
-        borderRadius: 0,
-        ...style,
+        transition: 'background 0.15s ease, transform 0.1s ease',
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled) e.currentTarget.style.background = hoverBg;
+      }}
+      onMouseLeave={(e) => {
+        if (!disabled) e.currentTarget.style.background = bg;
       }}
     >
-      <Icon name={icon} size={iconSize} aria-hidden style={{ display: 'block' }} />
+      <Icon name={icon} size={iconSize} color={color} />
     </button>
   );
 }

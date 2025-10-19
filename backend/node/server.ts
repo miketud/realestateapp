@@ -561,3 +561,105 @@ start().catch((err) => {
   app.log.error(err);
   process.exit(1);
 });
+
+// ------------------------------
+// TENANTS
+// ------------------------------
+app.get('/api/tenant', async (req, reply) => {
+  const { property_id } = req.query as { property_id?: string };
+  if (!property_id)
+    return reply.status(400).send({ error: 'property_id required' });
+
+  try {
+    const rows = await prisma.tenant.findMany({
+      where: { property_id: Number(property_id) },
+      orderBy: { tenant_id: 'asc' },
+    });
+    reply.send(rows);
+  } catch (e: any) {
+    reply.status(500).send({ error: e.message || 'Failed to fetch tenants' });
+  }
+});
+
+// Create new tenant (one record per POST)
+app.post('/api/tenant', async (req, reply) => {
+  const b = req.body as any;
+  if (!b?.property_id)
+    return reply.status(400).send({ error: 'property_id required' });
+
+  try {
+    const data: any = {
+      property_id: Number(b.property_id),
+      tenant_name: b.tenant_name ?? null,
+      tenant_status: b.tenant_status ?? 'Inactive',
+      lease_start: b.lease_start ? new Date(b.lease_start) : null,
+      lease_end: b.lease_end ? new Date(b.lease_end) : null,
+      rent_amount:
+        b.rent_amount !== undefined && b.rent_amount !== null
+          ? Number(b.rent_amount)
+          : null,
+    };
+
+    // Prisma doesn’t type composite unique constraints yet — cast for runtime safety
+    const whereClause = {
+      unique_property_tenant_start: {
+        property_id: data.property_id,
+        tenant_name: data.tenant_name,
+        lease_start: data.lease_start,
+      },
+    } as any;
+
+    const result = await prisma.tenant.upsert({
+      where: whereClause,
+      update: data,
+      create: data,
+    });
+
+    reply.status(201).send(result);
+  } catch (e: any) {
+    reply.status(400).send({ error: e.message });
+  }
+});
+
+// Update existing tenant
+app.patch('/api/tenant/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const b = req.body as any;
+
+  try {
+    const data: any = {
+      tenant_name: b.tenant_name ?? undefined,
+      tenant_status: b.tenant_status ?? undefined,
+      lease_start: b.lease_start ? new Date(b.lease_start) : undefined,
+      lease_end: b.lease_end ? new Date(b.lease_end) : undefined,
+      rent_amount:
+        b.rent_amount !== undefined && b.rent_amount !== null
+          ? Number(b.rent_amount)
+          : undefined,
+    };
+
+    const updated = await prisma.tenant.update({
+      where: { tenant_id: Number(id) },
+      data,
+    });
+    reply.send(updated);
+  } catch (e: any) {
+    if (e?.code === 'P2025')
+      return reply.status(404).send({ error: 'Tenant not found' });
+    reply.status(400).send({ error: e.message || 'Update failed' });
+  }
+});
+
+// Delete tenant
+app.delete('/api/tenant/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  try {
+    await prisma.tenant.delete({ where: { tenant_id: Number(id) } });
+    reply.status(204).send();
+  } catch (e: any) {
+    if (e?.code === 'P2025')
+      return reply.status(404).send({ error: 'Tenant not found' });
+    reply.status(400).send({ error: e.message || 'Delete failed' });
+  }
+});
+

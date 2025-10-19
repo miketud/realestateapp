@@ -5,6 +5,10 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { AnimatePresence, motion } from 'framer-motion';
 
+// Detect correct API base depending on environment
+const isProd = import.meta.env.MODE === 'production';
+const API_BASE = (import.meta.env.VITE_API_BASE || (isProd ? '' : 'http://localhost:3000')).replace(/\/$/, '');
+
 type LatLng = { lat: number; lng: number };
 
 type RawRow = {
@@ -197,7 +201,7 @@ function FocusOnProperty({
 
 export default function MapOSM({
   open, // optional: controlled when provided
-  endpoint = '/api/property_markers',
+  endpoint = `${API_BASE}/api/property_markers`,
   height = 560,
   fallbackGeocode = true,
   throttleMs = 1100,
@@ -396,10 +400,10 @@ export default function MapOSM({
                 {error
                   ? `Error: ${error}`
                   : loading || refreshing
-                  ? 'Loading map…'
-                  : markers.length === 0
-                  ? 'No mappable properties yet.'
-                  : `${markers.length} location${markers.length === 1 ? '' : 's'} plotted.`}
+                    ? 'Loading map…'
+                    : markers.length === 0
+                      ? 'No mappable properties yet.'
+                      : `${markers.length} location${markers.length === 1 ? '' : 's'} plotted.`}
               </div>
               <button
                 onClick={fetchMarkers}

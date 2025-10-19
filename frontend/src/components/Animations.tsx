@@ -16,7 +16,7 @@ export function NoProperties() {
         display: 'flex',
         alignItems: 'flex-end',
         justifyContent: 'center',
-        height: 120,
+        height: 200,
         width: '100%',
       }}
     >

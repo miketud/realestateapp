@@ -410,16 +410,16 @@ const noPropertiesAnimation = useMemo(() => <NoProperties />, [rows, query]);
                             zIndex: 1500,
                           }}
                         >
-                          {readyToAdd && (
+                          {Object.values(newRow).some((v) => String(v ?? '').trim().length > 0) && (
+                            <IconButton icon="cancel" label="Clear" onClick={resetNew} />
+                          )}
+                                                    {readyToAdd && (
                             <IconButton
-                              icon="addCircle"
+                              icon="save"
                               label={savingNew ? 'Saving…' : 'Save'}
                               onClick={addProperty}
                               disabled={savingNew}
                             />
-                          )}
-                          {Object.values(newRow).some((v) => String(v ?? '').trim().length > 0) && (
-                            <IconButton icon="cancel" label="Clear" onClick={resetNew} />
                           )}
                         </div>
                       )}
@@ -537,7 +537,7 @@ const noPropertiesAnimation = useMemo(() => <NoProperties />, [rows, query]);
                                     {isEditing ? (
                                       <>
                                         <IconButton icon="cancel" label="Cancel" onClick={() => setEditingId(null)} />
-                                        <IconButton icon="addCircle" label="Save" onClick={() => void saveEditRow(row.property_id)} />
+                                        <IconButton icon="save" label="Save" onClick={() => void saveEditRow(row.property_id)} />
                                                                               </>
                                     ) : (
                                       <IconButton icon="edit" label="Edit" onClick={() => {

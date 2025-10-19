@@ -43,7 +43,7 @@ const CONTACT_TYPE_OPTIONS = [
   'Other',
 ] as const;
 
-const NOTES_BG = '#bec8dfff';
+const NOTES_BG = '#fffab8ff';
 // Docker-safe + Vite-safe API base
 const isProd = import.meta.env.MODE === 'production';
 const API_BASE = (
@@ -389,7 +389,7 @@ export default function ContactList() {
   }, [rows, query, sortKey, sortDir]);
 
   const TABLE_W = useMemo(() => COLS.reduce((s, c) => s + c.width, 0), []);
-const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* Header cell with PropertyList hover style */
+  const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* Header cell with PropertyList hover style */
   const header = (c: { key: SortKey; title: string; width: number }) => {
     const active = c.key === sortKey;
     const onClick = () => {
@@ -552,12 +552,13 @@ const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* He
                             zIndex: 1500,
                           }}
                         >
-                          {readyToAdd && (
-                            <IconButton icon="addCircle" label={savingNew ? 'Saving…' : 'Save'} onClick={addContact} disabled={savingNew} />
-                          )}
                           {Object.values(draft).some((v) => String(v ?? '').trim().length > 0) && (
                             <IconButton icon="cancel" label="Clear" onClick={resetDraft} />
                           )}
+                          {readyToAdd && (
+                            <IconButton icon="save" label={savingNew ? 'Saving…' : 'Save'} onClick={addContact} disabled={savingNew} />
+                          )}
+
                         </div>
                       )}
                     </td>
@@ -569,7 +570,7 @@ const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* He
               <tr>
                 <td colSpan={COLS.length} style={{ padding: 0, border: 'none' }}>
                   <SmoothCollapse open={hasNewInput}>
-                    <div style={{ background: '#fff', fontSize: 16, color: '#111', padding: 8 }}>
+                    <div style={{ background: '#fff', color: '#111', padding: 10, lineHeight: 1.6 }}>
                       <textarea
                         value={draft.notes}
                         onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))}
@@ -582,13 +583,15 @@ const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* He
                           outline: 'none',
                           background: 'transparent',
                           resize: 'vertical',
+                          fontSize: 20,
+                          lineHeight: 1.5,
+                          color: '#111',
                         }}
                       />
                     </div>
                   </SmoothCollapse>
                 </td>
               </tr>
-
               {/* Data rows */}
               {loading ? (
                 <tr>
@@ -766,7 +769,7 @@ const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* He
                                       <>
                                         {/* Clear first, then Save */}
                                         <IconButton icon="cancel" label="Clear" onClick={clearAndExitEdit} />
-                                        <IconButton icon="addCircle" label="Save" onClick={() => void saveEditRow(row.contact_id)} />
+                                        <IconButton icon="save" label="Save" onClick={() => void saveEditRow(row.contact_id)} />
                                         <IconButton
                                           icon="delete"
                                           label="Delete"
@@ -848,12 +851,23 @@ const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* He
                     <tr key={`notes-${row.contact_id}`}>
                       <td colSpan={COLS.length} style={{ padding: 0, border: 'none' }}>
                         <SmoothCollapse open={isExpanded}>
-                          <div style={{ background: NOTES_BG, borderBottom: '#111', fontSize: 16, color: '#111', padding: 8 }}>
+                          <div
+                            style={{
+                              background: NOTES_BG,
+                              borderBottom: '#111',
+                              fontSize: 30,
+                              lineHeight: 1.6,
+                              color: '#111',
+                              padding: 10,
+                            }}
+                          >
                             {isEditing ? (
                               <textarea
                                 value={edit.notes}
                                 onChange={(e) => setEdit((p) => ({ ...p, notes: e.target.value }))}
-                                onKeyDown={(e) => { if (e.key === 'Escape') clearAndExitEdit(); }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Escape') clearAndExitEdit();
+                                }}
                                 placeholder="Notes…"
                                 rows={3}
                                 style={{
@@ -863,12 +877,24 @@ const noContactsAnimation = useMemo(() => <NoContacts />, [rows, query]);  /* He
                                   outline: 'none',
                                   background: 'transparent',
                                   resize: 'vertical',
+                                  fontSize: 18,
+                                  lineHeight: 1.6,
+                                  color: '#111',
                                 }}
                               />
                             ) : (
-                              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                              <div
+                                style={{
+                                  whiteSpace: 'pre-wrap',
+                                  wordBreak: 'break-word',
+                                  fontSize: 18,
+                                  lineHeight: 1.6,
+                                }}
+                              >
                                 {row.notes ? (
-                                  <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{row.notes}</div>
+                                  <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                    {row.notes}
+                                  </div>
                                 ) : (
                                   <span style={{ color: PLACEHOLDER }}>{EMPTY}</span>
                                 )}

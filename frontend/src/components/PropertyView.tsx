@@ -238,11 +238,11 @@ function ContactInlineRows({ property_id, colSpan }: { property_id: number; colS
         <td colSpan={colSpan} style={{ ...cellBase, padding: 0, borderRight: 'none', background: 'transparent' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr', alignItems: 'stretch', borderBottom: DIVIDER }}>
             <div
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: ROW_H, borderRight: DIVIDER, color: '#fff', background: '#000' }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: ROW_H, border: DIVIDER, color: '#fff', background: '#ffffffff' }}
               title="Contacts"
               aria-label="Contacts"
             >
-              <Icon name="contact" size={20} />
+              <Icon name="contact" size={30} />
             </div>
 
             <div ref={boxRef} style={{ padding: '0 8px', display: 'flex', flexDirection: 'column' }}>
@@ -330,7 +330,7 @@ function ContactInlineRows({ property_id, colSpan }: { property_id: number; colS
                 title="Remove contact"
                 aria-label="Remove contact"
               >
-                <IconButton icon="remove_user" label="Remove contact" onClick={() => removePinned(c.contact_id)} boxSize={28} iconSize={20} />
+                <IconButton icon="userRemove" label="Remove contact" onClick={() => removePinned(c.contact_id)} boxSize={28} iconSize={20} />
               </div>
               <div style={{ background: CARD_BG }}>
                 <div style={{ minHeight: ROW_H, display: 'flex', alignItems: 'center', gap: 12, padding: '8px 8px' }}>
@@ -919,17 +919,15 @@ export default function PropertyView({ property_id }: PropertyViewProps) {
                   right: 14,
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  background: 'transparent',
                   border: 'none',
                   cursor: 'pointer',
-                  color: '#fff',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   zIndex: 3,
                 }}
               >
-                <Icon name="view" size={32} />
+                <Icon name="dashboard" size={40} />
               </button>
 
               <span
@@ -1099,9 +1097,6 @@ export default function PropertyView({ property_id }: PropertyViewProps) {
                         <BlackCell />
                         <BlackCell />
                       </tr>
-
-                      <ContactInlineRows property_id={property.property_id} colSpan={MAX_COLS} />
-
                       {/* Tenant row */}
                       <tr>
                         <td colSpan={MAX_COLS} style={{ padding: 0, border: 'none' }}>
@@ -1110,6 +1105,9 @@ export default function PropertyView({ property_id }: PropertyViewProps) {
                           </div>
                         </td>
                       </tr>
+                      <ContactInlineRows property_id={property.property_id} colSpan={MAX_COLS} />
+
+
                     </tbody>
                   </Table>
                 </div>

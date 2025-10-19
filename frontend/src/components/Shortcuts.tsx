@@ -336,9 +336,9 @@ export default function Shortcuts({ active, open: openLegacy, mode }: Props) {
 
                   {/* Fixed-width actions block */}
                   <div style={{ width: ACTION_W, display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 8, height: ROW_H }}>
-                    {saveReady && <IconButton icon="addCircle" label="Save" onClick={() => saveRow(r)} />}
+                    {saveReady && <IconButton icon="save" label="Save" onClick={() => saveRow(r)} />}
                     {hasAnyInput(r) && <IconButton icon="cancel" label="cancel" onClick={() => clearRow(r.id)} />}
-                    {showDelete && <IconButton icon="remove" label="Remove" onClick={() => removeRow(r.id)} />}
+                    {showDelete && <IconButton icon="delete" label="Remove" onClick={() => removeRow(r.id)} />}
                   </div>
                 </div>
               </div>

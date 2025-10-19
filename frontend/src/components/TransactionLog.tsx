@@ -618,8 +618,9 @@ const totalAmount = useMemo(() => {
                           transition: 'opacity 160ms ease',
                         }}
                       >
-                        {addIsComplete && <IconButton icon="addCircle" label="Save" onClick={onAddSave} />}
                         {addHasAny && <IconButton icon="cancel" label="Cancel" onClick={onAddCancel} />}
+                                              {addIsComplete && <IconButton icon="save" label="Save" onClick={onAddSave} />}
+
                       </div>
                     </td>
                   </tr>
@@ -722,7 +723,7 @@ const totalAmount = useMemo(() => {
                         >
                           {/* Clear first, then Save */}
                           {editHasAny && <IconButton icon="cancel" label="Clear changes" onClick={onEditCancel} />}
-                          {editIsComplete && <IconButton icon="addCircle" label="Save" onClick={onEditSave} />}
+                          {editIsComplete && <IconButton icon="save" label="Save" onClick={onEditSave} />}
                           {isConfirming ? (
                             <button type="button" aria-label="Confirm delete" style={confirmBtnStyle} onClick={() => void doDelete(idx)}>
                               CONFIRM?
