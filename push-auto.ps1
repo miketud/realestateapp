@@ -1,82 +1,53 @@
+# ---------- run by: powershell -ExecutionPolicy Bypass -File .\push-latest.ps1
 param(
   [string] $Username = 'miketud',
   [string] $Project  = 'realestateapp',
   [switch] $NoCache,
-  [switch] $Watch,
-  [string] $Version
+  [switch] $Watch
 )
 
 $ErrorActionPreference = 'Stop'
 
-function New-Tag {
-  param([string]$Tag)
-  if ($Tag) { return $Tag }
-  $ts  = (Get-Date -Format 'yyyyMMdd-HHmmss')
-  $sha = ''
-  try { $sha = (git rev-parse --short HEAD).Trim() } catch { $sha = 'nogit' }
-  return "$ts-$sha"
-}
-
+# -------------------------------------------------------------------------
+# Build and push backend + frontend images using docker compose
+# -------------------------------------------------------------------------
 function Invoke-ImageRelease {
-  param([string]$Tag)
 
-  Write-Host "[LOGIN] docker login (cached session is OK)..."
+  Write-Host "[LOGIN] docker login (cached session OK)..."
   docker login | Out-Host
 
+  # Compose build uses the same image tags defined in docker-compose.yml
   $buildArgs = @('compose','build','--pull')
   if ($NoCache) { $buildArgs += '--no-cache' }
+
   Write-Host "[BUILD] docker $($buildArgs -join ' ')"
   docker @buildArgs | Out-Host
 
-  # Resolve actual local image names produced by compose
-  $beLocal = ''
-  $feLocal = ''
-  try {
-    $beLocal = (docker compose images backend  --format json | ConvertFrom-Json).Image
-    $feLocal = (docker compose images frontend --format json | ConvertFrom-Json).Image
-  } catch {
-    $beLocal = "${Project}-backend:latest"
-    $feLocal = "${Project}-frontend:latest"
-  }
-  if (-not $beLocal) { $beLocal = "${Project}-backend:latest" }
-  if (-not $feLocal) { $feLocal = "${Project}-frontend:latest" }
-
-  $beRemoteLatest = "${Username}/realestateapp-backend:latest"
-  $beRemoteVer    = "${Username}/realestateapp-backend:${Tag}"
-  $feRemoteLatest = "${Username}/realestateapp-frontend:latest"
-  $feRemoteVer    = "${Username}/realestateapp-frontend:${Tag}"
-
-  Write-Host "[TAG]   backend: $beLocal -> $beRemoteLatest, $beRemoteVer"
-  docker tag $beLocal $beRemoteLatest
-  docker tag $beLocal $beRemoteVer
-
-  Write-Host "[TAG]   frontend: $feLocal -> $feRemoteLatest, $feRemoteVer"
-  docker tag $feLocal $feRemoteLatest
-  docker tag $feLocal $feRemoteVer
+  # Explicit image names (must match docker-compose.yml)
+  $beImage = "${Username}/realestateapp-backend:latest"
+  $feImage = "${Username}/realestateapp-frontend:latest"
 
   Write-Host "[PUSH]  backend..."
-  docker push $beRemoteLatest  | Out-Host
-  docker push $beRemoteVer     | Out-Host
+  docker push $beImage | Out-Host
 
   Write-Host "[PUSH]  frontend..."
-  docker push $feRemoteLatest  | Out-Host
-  docker push $feRemoteVer     | Out-Host
+  docker push $feImage | Out-Host
 
-  Write-Host "[DONE]  pushed:"
-  Write-Host "        $beRemoteLatest"
-  Write-Host "        $beRemoteVer"
-  Write-Host "        $feRemoteLatest"
-  Write-Host "        $feRemoteVer"
+  Write-Host "`n[DONE] pushed successfully:"
+  Write-Host "   $beImage"
+  Write-Host "   $feImage"
 }
 
+# -------------------------------------------------------------------------
+# File watcher mode (rebuild + push on changes)
+# -------------------------------------------------------------------------
 function Start-FileWatch {
-  # Watch common project paths; adjust if needed
   $paths = @()
   if (Test-Path './frontend/src') { $paths += (Resolve-Path './frontend/src').Path }
   if (Test-Path './backend/node')  { $paths += (Resolve-Path './backend/node').Path }
 
   if ($paths.Count -eq 0) {
-    Write-Host "[WATCH] No watch paths found; exiting watch mode."
+    Write-Host "[WATCH] No watch paths found; exiting."
     return
   }
 
@@ -94,7 +65,7 @@ function Start-FileWatch {
     }
   }
 
-  # Debounce timer: 2 seconds after last change
+  # debounce 2s
   $debounce = New-Object System.Timers.Timer
   $debounce.Interval = 2000
   $debounce.AutoReset = $false
@@ -108,9 +79,8 @@ function Start-FileWatch {
     }
     elseif ($e.SourceIdentifier -eq 'debounced-build') {
       try {
-        $tag = New-Tag -Tag $Version
-        Write-Host "[WATCH] Change detected -> build/tag/push as $tag"
-        Invoke-ImageRelease -Tag $tag
+        Write-Host "[WATCH] Change detected -> build and push latest"
+        Invoke-ImageRelease
       } catch {
         Write-Host "[ERROR] Release failed: $($_.Exception.Message)"
       }
@@ -119,10 +89,11 @@ function Start-FileWatch {
   }
 }
 
-# ----- entrypoint -----
-$tagToUse = New-Tag -Tag $Version
+# -------------------------------------------------------------------------
+# Entrypoint
+# -------------------------------------------------------------------------
 if ($Watch) {
   Start-FileWatch
 } else {
-  Invoke-ImageRelease -Tag $tagToUse
+  Invoke-ImageRelease
 }

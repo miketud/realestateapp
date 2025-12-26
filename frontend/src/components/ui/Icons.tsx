@@ -23,6 +23,7 @@ import {
   FaUserMinus,
   FaUsers,
   FaInfoCircle,
+  FaFileExport,
 } from 'react-icons/fa';
 
 import type { CSSProperties } from 'react';
@@ -51,7 +52,9 @@ export type IconName =
   | 'userAdd'
   | 'userRemove'
   | 'contact'
+  | "export"
   | 'confirm';
+  
 
 
 const ICONS: Record<IconName, React.ComponentType<{ size?: number }>> = {
@@ -78,6 +81,7 @@ const ICONS: Record<IconName, React.ComponentType<{ size?: number }>> = {
   userRemove: FaUserMinus,
   contact: FaUsers,
   confirm: FaCheckCircle,
+  export: FaFileExport,
 };
 
 export type IconProps = {
@@ -140,6 +144,7 @@ type IconButtonProps = {
   color?: string;
   bg?: string;
   hoverBg?: string;
+  style?: React.CSSProperties;
 };
 
 export function IconButton({

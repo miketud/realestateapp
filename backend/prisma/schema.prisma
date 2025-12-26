@@ -1,0 +1,171 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum YesNo {
+  YES
+  NO
+}
+
+model Property {
+  property_id      Int      @id @default(autoincrement())
+  property_name    String   @db.VarChar(255)
+  address          String
+  city             String?
+  state            String?
+  zipcode          Int?
+  county           String?
+  owner            String
+  market_value     Float?
+  year             Int?
+  type             String
+  status           String
+  income_producing YesNo    @default(NO)
+  created_at       DateTime @default(now())
+
+  lat         Float?    @map("lat")
+  lng         Float?    @map("lng")
+  geocoded_at DateTime?
+
+  // Relations
+  rentLogs        RentLog[]
+  transactions    Transaction[]
+  purchaseDetails PurchaseDetails[]
+  loanDetails     LoanDetails[]     @relation("PropertyLoans")
+  paymentLogs     PaymentLog[]
+  tenants         Tenant[]
+
+  @@unique([address, city, state, zipcode], map: "uniq_prop_address")
+  @@index([city, state])
+  @@index([lat, lng], map: "idx_property_lat_lng")
+  @@map("properties")
+}
+
+model RentLog {
+  rent_id        Int      @id @default(autoincrement())
+  property_id    Int
+  month          String
+  year           Int
+  rent_amount    Decimal  @db.Decimal(12, 2)
+  date_deposited DateTime
+  check_number   Int?
+  notes          String?
+
+  property Property @relation(fields: [property_id], references: [property_id])
+
+  @@unique([property_id, month, year], name: "property_id_month_year")
+  @@map("rent_log")
+}
+
+model PaymentLog {
+  id             Int       @id @default(autoincrement())
+  property_id    Int
+  year           Int
+  month          String // 'Jan'..'Dec'
+  payment_amount Float?
+  check_number   Int?
+  notes          String?
+  date_paid      DateTime?
+
+  property Property @relation(fields: [property_id], references: [property_id], onDelete: Cascade)
+
+  @@unique([property_id, month, year], name: "property_id_month_year")
+  @@map("payment_log") // optional: map to snake_case table in DB
+}
+
+model Transaction {
+  transaction_id     Int      @id @default(autoincrement())
+  property_id        Int
+  transaction_type   String?  @db.VarChar(100)
+  notes              String?  @db.VarChar(255)
+  transaction_amount Decimal  @db.Decimal(12, 2)
+  transaction_date   DateTime @db.Date
+
+  property Property @relation(fields: [property_id], references: [property_id])
+
+  @@map("transactions")
+}
+
+model PurchaseDetails {
+  purchase_id      Int      @id @default(autoincrement())
+  property_id      Int      @unique
+  purchase_price   Decimal  @db.Decimal(12, 2)
+  down_payment     Decimal? @db.Decimal(12, 2)
+  financing_type   String
+  acquisition_type String
+  buyer            String
+  seller           String
+  closing_date     DateTime
+  closing_costs    Decimal  @db.Decimal(12, 2)
+  earnest_money    Decimal? @db.Decimal(12, 2)
+  notes            String?
+
+  property Property      @relation(fields: [property_id], references: [property_id])
+  loans    LoanDetails[] @relation("PurchaseLoans")
+
+  @@map("purchase_details")
+}
+
+model LoanDetails {
+  loan_id             String    @id
+  property_id         Int
+  purchase_id         Int
+  loan_amount         Float?
+  lender              String?
+  interest_rate       Float?
+  loan_term           Int?
+  loan_start          DateTime?
+  loan_end            DateTime?
+  amortization_period Int?
+  monthly_payment     Decimal?  @db.Decimal(12, 2)
+  loan_type           String?
+  balloon_payment     Boolean?
+  prepayment_penalty  Boolean?
+  refinanced          Boolean?
+  loan_status         String?
+  notes               String?
+
+  property Property        @relation("PropertyLoans", fields: [property_id], references: [property_id])
+  purchase PurchaseDetails @relation("PurchaseLoans", fields: [purchase_id], references: [purchase_id])
+
+  @@unique([property_id, purchase_id])
+  @@unique([loan_id, property_id])
+  @@map("loan_details")
+}
+
+model Contact {
+  contact_id    Int      @id @default(autoincrement())
+  contact_name  String   @db.VarChar(255) // Name (required, not nullable)
+  contact_phone String   @db.VarChar(20) // Phone (required, not nullable, stored as string for flexibility)
+  contact_email String?  @db.VarChar(255) // Email (nullable)
+  contact_type  String?  @db.VarChar(100) // Type (nullable)
+  contact_notes String?  @db.Text // Notes (nullable)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+}
+
+model Tenant {
+  tenant_id     Int       @id @default(autoincrement())
+  property_id   Int
+  tenant_name   String?   @db.VarChar(255)
+  tenant_status String?   @db.VarChar(50)
+  lease_start   DateTime?
+  lease_end     DateTime?
+  rent_amount   Float?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  property Property @relation(fields: [property_id], references: [property_id], onDelete: Cascade)
+
+  @@unique([property_id, tenant_name, lease_start], name: "unique_property_tenant_start")
+  @@index([property_id])
+  @@index([tenant_status])
+  @@index([lease_start, lease_end])
+  @@map("tenant")
+}
