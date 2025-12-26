@@ -1,7 +1,0 @@
-node_modules
-dist
-Dockerfile
-.dockerignore
-*.log
-*.local
-.vscode
