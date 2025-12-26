@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { PrismaClient, Prisma } from '@prisma/client';
+import 'dotenv/config';
 
 const app = Fastify({ logger: true });
 const prisma = new PrismaClient();
